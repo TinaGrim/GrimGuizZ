@@ -1,0 +1,174 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700;9..144,900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import 'tailwindcss';
+
+@theme {
+  --font-display: 'Fraunces', serif;
+  --font-body: 'Outfit', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --color-ember: #D94F1E;
+  --color-ember-light: #F07050;
+  --color-ember-dark: #A83A12;
+  --color-amber: #F0A500;
+  --color-amber-light: #FFD166;
+  --color-amber-dark: #C08000;
+  --color-teal: #0D6E6E;
+  --color-teal-light: #1B9E9E;
+  --color-teal-dark: #084A4A;
+  --color-cream: #FFF8F0;
+  --color-cream-dark: #F5EDE0;
+  --color-ink: #1C0F00;
+  --color-ink-light: #4A3520;
+  --color-ink-muted: #8C7060;
+  --color-success: #2D7A3A;
+  --color-danger: #C0392B;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  font-family: var(--font-body);
+  background-color: var(--color-cream);
+  color: var(--color-ink);
+}
+
+/* Hide scrollbar by default, show on hover */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: var(--color-ink-muted) transparent;
+}
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 3px;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background-color: var(--color-ink-muted);
+}
+
+/* Memphis geometric decoration class */
+.memphis-dot {
+  border-radius: 50%;
+  position: absolute;
+  pointer-events: none;
+}
+
+/* Fraunces display heading shorthand */
+.display {
+  font-family: var(--font-display);
+}
+
+/* Wheel transition */
+.wheel-rotate {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Score count-up animation */
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scoreRingFill {
+  from { stroke-dashoffset: 565; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes popIn {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.08); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+@keyframes confettiBurst {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+@keyframes tickerTick {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(3deg); }
+}
+
+.animate-count-up {
+  animation: countUp 0.4s ease forwards;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.5s ease forwards;
+}
+
+.animate-pop-in {
+  animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-shake {
+  animation: shake 0.4s ease;
+}
+
+.animate-ticker {
+  animation: tickerTick 0.15s ease-in-out;
+}
+
+/* Stripe pattern for Memphis decoration */
+.stripe-bg {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 8px,
+    rgba(0, 0, 0, 0.04) 8px,
+    rgba(0, 0, 0, 0.04) 16px
+  );
+}
+
+/* Radio option styles */
+.quiz-option {
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 2px solid var(--color-cream-dark);
+  background: white;
+}
+.quiz-option:hover:not(.disabled) {
+  border-color: var(--color-amber);
+  background: #FFFBF0;
+}
+.quiz-option.selected {
+  border-color: var(--color-ink);
+  background: var(--color-cream);
+}
+.quiz-option.correct {
+  border-color: var(--color-success);
+  background: #EEF8EF;
+}
+.quiz-option.wrong {
+  border-color: var(--color-danger);
+  background: #FDECEA;
+}
+.quiz-option.disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

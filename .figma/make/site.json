@@ -1,5 +1,6 @@
 {
-  "description": "QuizWheel is an engaging quiz platform for students, featuring randomized question counts and interactive feedback, empowering learning through personalized quizzes and analytics.",
+  "title": "QuizZ Platform",
+  "description": "QuizZ is a math and physics quiz platform for students, featuring randomized question counts and interactive feedback, empowering learning through personalized quizzes and analytics.",
   "robots": {
     "index": false
   },

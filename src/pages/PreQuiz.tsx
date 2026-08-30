@@ -1,22 +1,23 @@
-import { useEffect } from "react";
-import { useNavigate, useParams } from "react-router";
-import { useApp } from "../store/AppContext";
-import { ArrowLeft, AlertCircle, Dices } from "lucide-react";
+import { useEffect } from "react"
+import { useNavigate, useParams } from "react-router"
+import { useApp } from "../store/AppContext"
+import { ArrowLeft, AlertCircle, Dices } from "lucide-react"
 
 export default function PreQuiz() {
-  const { quizId } = useParams<{ quizId: string }>();
-  const navigate = useNavigate();
-  const { currentStudent, quizzes, getLessonForQuiz, getChapterForLesson } = useApp();
+  const { quizId } = useParams<{ quizId: string }>()
+  const navigate = useNavigate()
+  const { currentStudent, quizzes, getLessonForQuiz, getChapterForLesson } =
+    useApp()
 
   useEffect(() => {
-    if (!currentStudent) navigate("/");
-  }, [currentStudent, navigate]);
+    if (!currentStudent) navigate("/")
+  }, [currentStudent, navigate])
 
-  const quiz = quizzes.find((q) => q.id === quizId);
-  const lesson = quiz ? getLessonForQuiz(quiz.id) : undefined;
-  const chapter = lesson ? getChapterForLesson(lesson.id) : undefined;
+  const quiz = quizzes.find((q) => q.id === quizId)
+  const lesson = quiz ? getLessonForQuiz(quiz.id) : undefined
+  const chapter = lesson ? getChapterForLesson(lesson.id) : undefined
 
-  if (!quiz || !currentStudent) return null;
+  if (!quiz || !currentStudent) return null
 
   return (
     <div
@@ -40,14 +41,23 @@ export default function PreQuiz() {
         <button
           onClick={() => navigate("/quizzes")}
           className="flex items-center gap-2 text-sm font-500"
-          style={{ color: "var(--color-ink-muted)", fontFamily: "var(--font-body)", background: "none", border: "none", cursor: "pointer" }}
+          style={{
+            color: "var(--color-ink-muted)",
+            fontFamily: "var(--font-body)",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+          }}
         >
           <ArrowLeft size={16} />
           Back to quizzes
         </button>
         <span
           className="text-sm"
-          style={{ color: "var(--color-ink-muted)", fontFamily: "var(--font-body)" }}
+          style={{
+            color: "var(--color-ink-muted)",
+            fontFamily: "var(--font-body)",
+          }}
         >
           {currentStudent.name}
         </span>
@@ -80,7 +90,11 @@ export default function PreQuiz() {
           >
             <p
               className="text-xs font-600 uppercase tracking-wider mb-3"
-              style={{ color: "var(--color-ember)", fontFamily: "var(--font-body)", letterSpacing: "0.12em" }}
+              style={{
+                color: "var(--color-ember)",
+                fontFamily: "var(--font-body)",
+                letterSpacing: "0.12em",
+              }}
             >
               Quiz
             </p>
@@ -106,27 +120,49 @@ export default function PreQuiz() {
           >
             <h2
               className="text-base font-700 mb-4"
-              style={{ fontFamily: "var(--font-display)", color: "var(--color-ink)" }}
+              style={{
+                fontFamily: "var(--font-display)",
+                color: "var(--color-ink)",
+              }}
             >
               Before you start
             </h2>
             <ul className="flex flex-col gap-3">
               {[
-                { icon: "⊙", text: "Spin the wheel to find out how many questions you get — 1, 2, or 3." },
-                { icon: "↺", text: "You get 3 attempts per question. Use them wisely." },
-                { icon: "⚠", text: "Three wrong answers on one question triggers the troll video. You have been warned." },
-                { icon: "→", text: "You can only move forward. No going back mid-quiz." },
+                {
+                  icon: "⊙",
+                  text: "Spin the wheel to find out how many questions you get — 1, 2, or 3.",
+                },
+                {
+                  icon: "↺",
+                  text: "You get 3 attempts per question. Use them wisely.",
+                },
+                {
+                  icon: "⚠",
+                  text: "Three wrong answers on one question triggers the troll video. You have been warned.",
+                },
+                {
+                  icon: "→",
+                  text: "You can only move forward. No going back mid-quiz.",
+                },
               ].map((rule, i) => (
                 <li key={i} className="flex items-start gap-3">
                   <span
                     className="shrink-0 font-700 mt-0.5"
-                    style={{ color: "var(--color-ember)", fontFamily: "var(--font-mono)", fontSize: 16 }}
+                    style={{
+                      color: "var(--color-ember)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 16,
+                    }}
                   >
                     {rule.icon}
                   </span>
                   <span
                     className="text-sm leading-relaxed"
-                    style={{ color: "var(--color-ink-light)", fontFamily: "var(--font-body)" }}
+                    style={{
+                      color: "var(--color-ink-light)",
+                      fontFamily: "var(--font-body)",
+                    }}
                   >
                     {rule.text}
                   </span>
@@ -144,12 +180,19 @@ export default function PreQuiz() {
               borderLeft: "3px solid var(--color-amber)",
             }}
           >
-            <AlertCircle size={16} style={{ color: "var(--color-amber-dark)", flexShrink: 0 }} />
+            <AlertCircle
+              size={16}
+              style={{ color: "var(--color-amber-dark)", flexShrink: 0 }}
+            />
             <p
               className="text-sm"
-              style={{ color: "var(--color-ink-light)", fontFamily: "var(--font-body)" }}
+              style={{
+                color: "var(--color-ink-light)",
+                fontFamily: "var(--font-body)",
+              }}
             >
-              Once you spin, you&apos;re committed. The wheel result is final — no re-rolls.
+              Once you spin, you&apos;re committed. The wheel result is final —
+              no re-rolls.
             </p>
           </div>
 
@@ -168,12 +211,15 @@ export default function PreQuiz() {
               letterSpacing: "0.01em",
             }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.transform = "translate(-3px, -3px)";
-              (e.currentTarget as HTMLButtonElement).style.boxShadow = "9px 9px 0 var(--color-ink)";
+              ;(e.currentTarget as HTMLButtonElement).style.transform =
+                "translate(-3px, -3px)"
+              ;(e.currentTarget as HTMLButtonElement).style.boxShadow =
+                "9px 9px 0 var(--color-ink)"
             }}
             onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.transform = "none";
-              (e.currentTarget as HTMLButtonElement).style.boxShadow = "6px 6px 0 var(--color-ink)";
+              ;(e.currentTarget as HTMLButtonElement).style.transform = "none"
+              ;(e.currentTarget as HTMLButtonElement).style.boxShadow =
+                "6px 6px 0 var(--color-ink)"
             }}
           >
             <Dices size={22} />
@@ -182,5 +228,5 @@ export default function PreQuiz() {
         </div>
       </div>
     </div>
-  );
+  )
 }

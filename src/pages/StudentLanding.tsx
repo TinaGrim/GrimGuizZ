@@ -1,31 +1,33 @@
-import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router";
-import { useApp } from "../store/AppContext";
-import { ArrowRight, BookOpen } from "lucide-react";
+import { useState, type FormEvent } from "react"
+import { useNavigate } from "react-router"
+import { useApp } from "../store/AppContext"
+import { ArrowRight, BookOpen } from "lucide-react"
 
 export default function StudentLanding() {
-  const [name, setName] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const { loginStudent } = useApp();
-  const navigate = useNavigate();
+  const [name, setName] = useState("")
+  const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
+  const { loginStudent } = useApp()
+  const navigate = useNavigate()
 
   const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
-    setLoading(true);
-    setError("");
+    e.preventDefault()
+    if (!name.trim()) return
+    setLoading(true)
+    setError("")
 
     setTimeout(() => {
-      const student = loginStudent(name);
-      setLoading(false);
+      const student = loginStudent(name)
+      setLoading(false)
       if (student) {
-        navigate("/quizzes");
+        navigate("/quizzes")
       } else {
-        setError("No quizzes assigned yet — check back soon, or double-check your name.");
+        setError(
+          "We couldn't find that name. Double-check it's spelled exactly as your teacher has it on file.",
+        )
       }
-    }, 400);
-  };
+    }, 400)
+  }
 
   return (
     <div
@@ -99,8 +101,8 @@ export default function StudentLanding() {
                   letterSpacing: "0.15em",
                 }}
               >
-                ITC Platform
-              </span>
+                QuizZ Platform
+              </span>{" "}
             </div>
           </div>
 
@@ -121,40 +123,46 @@ export default function StudentLanding() {
             </h1>
             <p
               className="text-lg leading-relaxed max-w-sm"
-              style={{ color: "rgba(255,255,255,0.6)", fontFamily: "var(--font-body)" }}
+              style={{
+                color: "rgba(255,255,255,0.6)",
+                fontFamily: "var(--font-body)",
+              }}
             >
-              Spin the wheel. Get your questions. Prove what you know — or get acquainted
-              with the troll video.
+              Math &amp; Physics quizzes for students. Spin the wheel, get your
+              questions, and prove what you know — or get acquainted with the
+              troll video.
             </p>
 
             {/* Feature pills */}
             <div className="flex flex-wrap gap-2 mt-8">
-              {["Spin to pick questions", "3 attempts per question", "Instant feedback"].map(
-                (f) => (
-                  <span
-                    key={f}
-                    className="text-xs px-3 py-1.5 font-500"
-                    style={{
-                      border: "1px solid rgba(255,255,255,0.15)",
-                      color: "rgba(255,255,255,0.5)",
-                      fontFamily: "var(--font-body)",
-                    }}
-                  >
-                    {f}
-                  </span>
-                ),
-              )}
+              {[
+                "Spin to pick questions",
+                "3 attempts per question",
+                "Instant feedback",
+              ].map((f) => (
+                <span
+                  key={f}
+                  className="text-xs px-3 py-1.5 font-500"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    color: "rgba(255,255,255,0.5)",
+                    fontFamily: "var(--font-body)",
+                  }}
+                >
+                  {f}
+                </span>
+              ))}
             </div>
           </div>
 
-          {/* Admin link */}
+          {/* Teacher link */}
           <div className="relative z-10">
             <a
-              href="/admin"
+              href="/teacher"
               className="text-xs font-500 underline underline-offset-2 opacity-30 hover:opacity-60 transition-opacity"
               style={{ color: "#fff", fontFamily: "var(--font-body)" }}
             >
-              Admin login →
+              I'm a teacher →
             </a>
           </div>
         </div>
@@ -164,15 +172,22 @@ export default function StudentLanding() {
           <div className="w-full max-w-sm">
             <h2
               className="text-3xl font-700 mb-2"
-              style={{ fontFamily: "var(--font-display)", color: "var(--color-ink)" }}
+              style={{
+                fontFamily: "var(--font-display)",
+                color: "var(--color-ink)",
+              }}
             >
               Enter your name
             </h2>
             <p
               className="mb-8 text-base"
-              style={{ color: "var(--color-ink-muted)", fontFamily: "var(--font-body)" }}
+              style={{
+                color: "var(--color-ink-muted)",
+                fontFamily: "var(--font-body)",
+              }}
             >
-              Your teacher has set up your quizzes. Just type the name they have on file.
+              Your teacher has set up your quizzes. Just type the name they have
+              on file.
             </p>
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -181,8 +196,8 @@ export default function StudentLanding() {
                   type="text"
                   value={name}
                   onChange={(e) => {
-                    setName(e.target.value);
-                    setError("");
+                    setName(e.target.value)
+                    setError("")
                   }}
                   placeholder="e.g. Jamie Chen"
                   autoFocus
@@ -197,18 +212,23 @@ export default function StudentLanding() {
                     transition: "box-shadow 0.15s",
                   }}
                   onFocus={(e) => {
-                    e.currentTarget.style.boxShadow = "6px 6px 0 var(--color-ember)";
-                    e.currentTarget.style.borderColor = "var(--color-ember)";
+                    e.currentTarget.style.boxShadow =
+                      "6px 6px 0 var(--color-ember)"
+                    e.currentTarget.style.borderColor = "var(--color-ember)"
                   }}
                   onBlur={(e) => {
-                    e.currentTarget.style.boxShadow = "4px 4px 0 var(--color-ink)";
-                    e.currentTarget.style.borderColor = "var(--color-ink)";
+                    e.currentTarget.style.boxShadow =
+                      "4px 4px 0 var(--color-ink)"
+                    e.currentTarget.style.borderColor = "var(--color-ink)"
                   }}
                 />
                 {error && (
                   <p
                     className="mt-2 text-sm animate-slide-up"
-                    style={{ color: "var(--color-danger)", fontFamily: "var(--font-body)" }}
+                    style={{
+                      color: "var(--color-danger)",
+                      fontFamily: "var(--font-body)",
+                    }}
                   >
                     {error}
                   </p>
@@ -221,12 +241,16 @@ export default function StudentLanding() {
                 className="flex items-center justify-center gap-2 w-full py-3.5 text-base font-600"
                 style={{
                   background:
-                    !name.trim() || loading ? "var(--color-ink-muted)" : "var(--color-ember)",
+                    !name.trim() || loading
+                      ? "var(--color-ink-muted)"
+                      : "var(--color-ember)",
                   color: "#fff",
                   border: "2px solid var(--color-ink)",
                   borderRadius: 0,
                   boxShadow:
-                    !name.trim() || loading ? "none" : "4px 4px 0 var(--color-ink)",
+                    !name.trim() || loading
+                      ? "none"
+                      : "4px 4px 0 var(--color-ink)",
                   fontFamily: "var(--font-body)",
                   cursor: !name.trim() || loading ? "not-allowed" : "pointer",
                   transition: "all 0.15s",
@@ -234,16 +258,19 @@ export default function StudentLanding() {
                 }}
                 onMouseEnter={(e) => {
                   if (name.trim() && !loading) {
-                    (e.currentTarget as HTMLButtonElement).style.transform =
-                      "translate(-2px, -2px)";
-                    (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                      "6px 6px 0 var(--color-ink)";
+                    ;(e.currentTarget as HTMLButtonElement).style.transform =
+                      "translate(-2px, -2px)"
+                    ;(e.currentTarget as HTMLButtonElement).style.boxShadow =
+                      "6px 6px 0 var(--color-ink)"
                   }
                 }}
                 onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.transform = "none";
-                  (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                    name.trim() && !loading ? "4px 4px 0 var(--color-ink)" : "none";
+                  ;(e.currentTarget as HTMLButtonElement).style.transform =
+                    "none"
+                  ;(e.currentTarget as HTMLButtonElement).style.boxShadow =
+                    name.trim() && !loading
+                      ? "4px 4px 0 var(--color-ink)"
+                      : "none"
                 }}
               >
                 {loading ? "Checking…" : "See my quizzes"}
@@ -262,12 +289,12 @@ export default function StudentLanding() {
                 color: "var(--color-ink-muted)",
               }}
             >
-              <strong style={{ color: "var(--color-ink)" }}>Demo names:</strong>
-              {" "}Jamie Chen · Alex Rivera · Sam Okafor · Priya Nair · Marcus Webb
+              <strong style={{ color: "var(--color-ink)" }}>Demo names:</strong>{" "}
+              Jamie Chen · Alex Rivera · Sam Okafor · Priya Nair · Marcus Webb
             </div>
           </div>
         </div>
       </div>
     </div>
-  );
+  )
 }

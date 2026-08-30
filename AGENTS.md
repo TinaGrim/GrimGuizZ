@@ -1,6 +1,6 @@
-# figma-make-app
+# quizz-platform
 
-React + Vite + Tailwind CSS project running inside Figma Make.
+React + Vite + Tailwind CSS project running inside Figma Make — "QuizZ Platform", a Math & Physics quiz site for students.
 
 ## Development Server
 
@@ -15,6 +15,15 @@ This is the canonical project structure. Start with task-relevant files below. O
 
 - `src/main.tsx` - React entrypoint; imports `src/index.css` and mounts `src/App.tsx` into the `#root` element
 - `src/App.tsx` - Primary application component and the usual starting point for UI work
+- `src/pages/StudentLanding.tsx` - Entry page; student login + a link to the teacher dashboard (`/teacher`)
+- `src/pages/StudentQuizList.tsx` - Student dashboard: left progress sidebar, right quiz list + teacher messages (latest first)
+- `src/pages/teacher/TeacherDashboard.tsx` - Teacher view (`/teacher`): lists quizzes, sends messages to students
+- `src/pages/teacher/NewQuiz.tsx` - Create a new quiz (`/teacher/new-quiz`) with name, lesson, status, and an uploaded cover image (FileReader data URL)
+- `src/pages/PreQuiz.tsx`, `WheelSpin.tsx`, `QuestionScreen.tsx`, `Results.tsx` - Student quiz flow
+- `src/components/` - SpinWheel, TrollVideoModal, ProgressRing
+- `src/data/mockData.ts` - Chapters/Lessons/Quizzes/Questions/Students. Every question has exactly 5 options.
+- `src/data/mockData.test.ts` - Verification tests (FR-201, FR-403) run with the bun runtime
+- `src/store/AppContext.tsx` - Session state + actions (login, quiz flow, `addMessage`, `createQuiz`)
 - `src/index.css` - Global CSS entrypoint and Tailwind CSS v4 import
 - `index.html` - Vite HTML shell containing the `#root` element and loading `src/main.tsx`
 - `package.json` - Project dependencies and the Vite build, development, preview, and formatting scripts

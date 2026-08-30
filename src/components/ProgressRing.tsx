@@ -1,9 +1,9 @@
 interface ProgressRingProps {
-  score: number;
-  total: number;
-  size?: number;
-  strokeWidth?: number;
-  animate?: boolean;
+  score: number
+  total: number
+  size?: number
+  strokeWidth?: number
+  animate?: boolean
 }
 
 export default function ProgressRing({
@@ -13,19 +13,24 @@ export default function ProgressRing({
   strokeWidth = 10,
   animate = true,
 }: ProgressRingProps) {
-  const pct = total === 0 ? 0 : score / total;
-  const r = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * r;
-  const cx = size / 2;
-  const cy = size / 2;
+  const pct = total === 0 ? 0 : score / total
+  const r = (size - strokeWidth) / 2
+  const circumference = 2 * Math.PI * r
+  const cx = size / 2
+  const cy = size / 2
 
-  let color = "#D94F1E";
-  if (pct >= 1) color = "#2D7A3A";
-  else if (pct >= 0.67) color = "#0D6E6E";
-  else if (pct >= 0.34) color = "#F0A500";
+  let color = "#D94F1E"
+  if (pct >= 1) color = "#2D7A3A"
+  else if (pct >= 0.67) color = "#0D6E6E"
+  else if (pct >= 0.34) color = "#F0A500"
 
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: "block" }}>
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      style={{ display: "block" }}
+    >
       {/* Track */}
       <circle
         cx={cx}
@@ -50,7 +55,8 @@ export default function ProgressRing({
         style={
           animate
             ? {
-                transition: "stroke-dashoffset 1.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                transition:
+                  "stroke-dashoffset 1.2s cubic-bezier(0.4, 0, 0.2, 1)",
                 transitionDelay: "0.3s",
               }
             : {}
@@ -82,5 +88,5 @@ export default function ProgressRing({
         of {total}
       </text>
     </svg>
-  );
+  )
 }

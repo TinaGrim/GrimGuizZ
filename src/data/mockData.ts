@@ -1,61 +1,67 @@
 export interface Chapter {
-  id: string;
-  title: string;
-  lessonIds: string[];
+  id: string
+  title: string
+  lessonIds: string[]
 }
 
 export interface Lesson {
-  id: string;
-  chapterId: string;
-  title: string;
-  quizIds: string[];
+  id: string
+  chapterId: string
+  title: string
+  quizIds: string[]
 }
 
 export interface Quiz {
-  id: string;
-  lessonId: string;
-  title: string;
-  questionPoolIds: string[];
-  status: "draft" | "scheduled" | "active" | "closed";
-  scheduledStart?: string;
-  scheduledEnd?: string;
+  id: string
+  lessonId?: string | null
+  title: string
+  coverImageDataUrl?: string | null
+  questionPoolIds: string[]
+  status: "draft" | "scheduled" | "active" | "closed"
+  scheduledStart?: string
+  scheduledEnd?: string
 }
 
 export interface Question {
-  id: string;
-  quizId: string;
-  prompt: string;
-  imageUrl?: string | null;
-  options: [string, string, string, string];
-  correctOptionIndex: 0 | 1 | 2 | 3;
-  order: number;
+  id: string
+  quizId: string
+  prompt: string
+  imageUrl?: string | null
+  options: [string, string, string, string, string]
+  correctOptionIndex: 0 | 1 | 2 | 3 | 4
+  order: number
+}
+
+export interface StudentMessage {
+  text: string
+  timestamp: string
 }
 
 export interface Student {
-  id: string;
-  name: string;
-  createdAt: string;
-  assignedQuizIds: string[];
-  adminMessage?: { text: string; timestamp: string } | null;
+  id: string
+  name: string
+  createdAt: string
+  assignedQuizIds: string[]
+  messages: StudentMessage[]
 }
 
 export interface SessionAnswer {
-  questionId: string;
-  chosenOptionIndex: number;
-  correct: boolean;
-  tries: number;
-  trolled: boolean;
+  questionId: string
+  chosenOptionIndex: number
+  correct: boolean
+  tries: number
+  trolled: boolean
 }
 
 export interface HistoricalAttempt {
-  id: string;
-  userId: string;
-  quizId: string;
-  wheelResult: 1 | 2 | 3;
-  score: number;
-  total: number;
-  completedAt: string;
-  answers: SessionAnswer[];
+  id: string
+  userId: string
+  quizId: string
+  wheelResult: 1 | 2 | 3
+  score: number
+  total: number
+  completedAt: string
+  answers: SessionAnswer[]
 }
 
 // ─── Chapters ────────────────────────────────────────────────────────────────
@@ -71,16 +77,21 @@ export const CHAPTERS: Chapter[] = [
     title: "Physics",
     lessonIds: ["l3", "l4"],
   },
-];
+]
 
 // ─── Lessons ─────────────────────────────────────────────────────────────────
 
 export const LESSONS: Lesson[] = [
   { id: "l1", chapterId: "ch1", title: "Algebra", quizIds: ["q1"] },
-  { id: "l2", chapterId: "ch1", title: "Geometry & Trigonometry", quizIds: ["q2"] },
+  {
+    id: "l2",
+    chapterId: "ch1",
+    title: "Geometry & Trigonometry",
+    quizIds: ["q2"],
+  },
   { id: "l3", chapterId: "ch2", title: "Mechanics", quizIds: ["q3"] },
   { id: "l4", chapterId: "ch2", title: "Waves & Light", quizIds: ["q4"] },
-];
+]
 
 // ─── Quizzes ─────────────────────────────────────────────────────────────────
 
@@ -89,6 +100,7 @@ export const QUIZZES: Quiz[] = [
     id: "q1",
     lessonId: "l1",
     title: "Algebra Fundamentals",
+    coverImageDataUrl: null,
     questionPoolIds: ["q1-1", "q1-2", "q1-3", "q1-4", "q1-5", "q1-6"],
     status: "active",
   },
@@ -96,6 +108,7 @@ export const QUIZZES: Quiz[] = [
     id: "q2",
     lessonId: "l2",
     title: "Geometry & Trigonometry",
+    coverImageDataUrl: null,
     questionPoolIds: ["q2-1", "q2-2", "q2-3", "q2-4", "q2-5", "q2-6"],
     status: "active",
   },
@@ -103,6 +116,7 @@ export const QUIZZES: Quiz[] = [
     id: "q3",
     lessonId: "l3",
     title: "Mechanics",
+    coverImageDataUrl: null,
     questionPoolIds: ["q3-1", "q3-2", "q3-3", "q3-4", "q3-5", "q3-6"],
     status: "active",
   },
@@ -110,10 +124,11 @@ export const QUIZZES: Quiz[] = [
     id: "q4",
     lessonId: "l4",
     title: "Waves & Light",
+    coverImageDataUrl: null,
     questionPoolIds: ["q4-1", "q4-2", "q4-3", "q4-4", "q4-5", "q4-6"],
     status: "active",
   },
-];
+]
 
 // ─── Questions ────────────────────────────────────────────────────────────────
 
@@ -129,6 +144,7 @@ export const QUESTIONS: Question[] = [
       "x = (-b ± √(b² + 4ac)) / 2a",
       "x = (b ± √(b² - 4ac)) / 2a",
       "x = (-b ± √(4ac - b²)) / 2a",
+      "x = (b ± √(b² + 4ac)) / 2a",
     ],
     correctOptionIndex: 0,
     order: 1,
@@ -138,16 +154,23 @@ export const QUESTIONS: Question[] = [
     quizId: "q1",
     prompt: "Solve the equation 2x + 6 = 14 for x.",
     imageUrl: null,
-    options: ["x = 3", "x = 4", "x = 5", "x = 8"],
+    options: ["x = 3", "x = 4", "x = 5", "x = 8", "x = 6"],
     correctOptionIndex: 1,
     order: 2,
   },
   {
     id: "q1-3",
     quizId: "q1",
-    prompt: "In the slope-intercept form of a line, y = mx + b, what does the letter m represent?",
+    prompt:
+      "In the slope-intercept form of a line, y = mx + b, what does the letter m represent?",
     imageUrl: null,
-    options: ["The y-intercept", "The slope of the line", "The x-intercept", "The constant term"],
+    options: [
+      "The y-intercept",
+      "The slope of the line",
+      "The x-intercept",
+      "The constant term",
+      "The independent variable",
+    ],
     correctOptionIndex: 1,
     order: 3,
   },
@@ -156,7 +179,13 @@ export const QUESTIONS: Question[] = [
     quizId: "q1",
     prompt: "Which of the following is the correct factorization of x² - 9?",
     imageUrl: null,
-    options: ["(x - 3)(x - 3)", "(x + 3)(x + 3)", "(x - 3)(x + 3)", "(x - 9)(x + 1)"],
+    options: [
+      "(x - 3)(x - 3)",
+      "(x + 3)(x + 3)",
+      "(x - 3)(x + 3)",
+      "(x - 9)(x + 1)",
+      "(x + 9)(x - 1)",
+    ],
     correctOptionIndex: 2,
     order: 4,
   },
@@ -165,7 +194,13 @@ export const QUESTIONS: Question[] = [
     quizId: "q1",
     prompt: "What are the solutions to the equation x² = 49?",
     imageUrl: null,
-    options: ["x = 7 only", "x = -7 only", "x = 7 and x = -7", "x = 49 and x = -49"],
+    options: [
+      "x = 7 only",
+      "x = -7 only",
+      "x = 7 and x = -7",
+      "x = 49 and x = -49",
+      "x = 14",
+    ],
     correctOptionIndex: 2,
     order: 5,
   },
@@ -174,7 +209,7 @@ export const QUESTIONS: Question[] = [
     quizId: "q1",
     prompt: "What is the value of 3² + 4²?",
     imageUrl: null,
-    options: ["7", "12", "25", "49"],
+    options: ["7", "12", "25", "49", "16"],
     correctOptionIndex: 2,
     order: 6,
   },
@@ -183,9 +218,16 @@ export const QUESTIONS: Question[] = [
   {
     id: "q2-1",
     quizId: "q2",
-    prompt: "According to the Pythagorean theorem, for a right triangle with legs a and b and hypotenuse c:",
+    prompt:
+      "According to the Pythagorean theorem, for a right triangle with legs a and b and hypotenuse c:",
     imageUrl: null,
-    options: ["a + b = c", "a² + b² = c²", "a² - b² = c²", "a × b = c"],
+    options: [
+      "a + b = c",
+      "a² + b² = c²",
+      "a² - b² = c²",
+      "a × b = c",
+      "a + b = c²",
+    ],
     correctOptionIndex: 1,
     order: 1,
   },
@@ -194,7 +236,7 @@ export const QUESTIONS: Question[] = [
     quizId: "q2",
     prompt: "What is the formula for the area of a circle with radius r?",
     imageUrl: null,
-    options: ["2πr", "πr²", "πd", "4πr²"],
+    options: ["2πr", "πr²", "πd", "4πr²", "2πr²"],
     correctOptionIndex: 1,
     order: 2,
   },
@@ -203,7 +245,7 @@ export const QUESTIONS: Question[] = [
     quizId: "q2",
     prompt: "What is the exact value of sin(30°)?",
     imageUrl: null,
-    options: ["0", "1/2", "√2/2", "1"],
+    options: ["0", "1/2", "√2/2", "1", "√3/2"],
     correctOptionIndex: 1,
     order: 3,
   },
@@ -212,7 +254,7 @@ export const QUESTIONS: Question[] = [
     quizId: "q2",
     prompt: "What is the sum of the interior angles of any triangle?",
     imageUrl: null,
-    options: ["90°", "180°", "270°", "360°"],
+    options: ["90°", "180°", "270°", "360°", "120°"],
     correctOptionIndex: 1,
     order: 4,
   },
@@ -221,7 +263,7 @@ export const QUESTIONS: Question[] = [
     quizId: "q2",
     prompt: "What is the formula for the volume of a sphere with radius r?",
     imageUrl: null,
-    options: ["(4/3)πr³", "πr³", "(2/3)πr³", "4πr²"],
+    options: ["(4/3)πr³", "πr³", "(2/3)πr³", "4πr²", "(4/3)πr²"],
     correctOptionIndex: 0,
     order: 5,
   },
@@ -230,7 +272,7 @@ export const QUESTIONS: Question[] = [
     quizId: "q2",
     prompt: "What is the exact value of cos(60°)?",
     imageUrl: null,
-    options: ["0", "1/2", "√3/2", "1"],
+    options: ["0", "1/2", "√3/2", "1", "√2/2"],
     correctOptionIndex: 1,
     order: 6,
   },
@@ -241,7 +283,7 @@ export const QUESTIONS: Question[] = [
     quizId: "q3",
     prompt: "Which equation expresses Newton's second law of motion?",
     imageUrl: null,
-    options: ["F = ma", "F = mv", "F = m/a", "F = a/m"],
+    options: ["F = ma", "F = mv", "F = m/a", "F = a/m", "F = m + a"],
     correctOptionIndex: 0,
     order: 1,
   },
@@ -250,47 +292,58 @@ export const QUESTIONS: Question[] = [
     quizId: "q3",
     prompt: "What is the SI unit of force?",
     imageUrl: null,
-    options: ["Joule", "Watt", "Newton", "Pascal"],
+    options: ["Joule", "Watt", "Newton", "Pascal", "Tesla"],
     correctOptionIndex: 2,
     order: 2,
   },
   {
     id: "q3-3",
     quizId: "q3",
-    prompt: "What is the approximate acceleration due to gravity near the Earth's surface?",
+    prompt:
+      "What is the approximate acceleration due to gravity near the Earth's surface?",
     imageUrl: null,
-    options: ["3.2 m/s²", "9.8 m/s²", "12.5 m/s²", "19.6 m/s²"],
+    options: ["3.2 m/s²", "9.8 m/s²", "12.5 m/s²", "19.6 m/s²", "4.9 m/s²"],
     correctOptionIndex: 1,
     order: 3,
   },
   {
     id: "q3-4",
     quizId: "q3",
-    prompt: "What is the formula for the kinetic energy of an object of mass m moving at speed v?",
+    prompt:
+      "What is the formula for the kinetic energy of an object of mass m moving at speed v?",
     imageUrl: null,
-    options: ["KE = mv", "KE = mv²", "KE = (1/2)mv²", "KE = (1/2)mv"],
+    options: [
+      "KE = mv",
+      "KE = mv²",
+      "KE = (1/2)mv²",
+      "KE = (1/2)mv",
+      "KE = mgh",
+    ],
     correctOptionIndex: 2,
     order: 4,
   },
   {
     id: "q3-5",
     quizId: "q3",
-    prompt: "What is the formula for the momentum p of an object of mass m moving at velocity v?",
+    prompt:
+      "What is the formula for the momentum p of an object of mass m moving at velocity v?",
     imageUrl: null,
-    options: ["p = m/v", "p = mv", "p = (1/2)mv²", "p = ma"],
+    options: ["p = m/v", "p = mv", "p = (1/2)mv²", "p = ma", "p = mgh"],
     correctOptionIndex: 1,
     order: 5,
   },
   {
     id: "q3-6",
     quizId: "q3",
-    prompt: "Newton's first law states that an object at rest stays at rest and an object in motion stays in motion unless:",
+    prompt:
+      "Newton's first law states that an object at rest stays at rest and an object in motion stays in motion unless:",
     imageUrl: null,
     options: [
       "It is acted upon by an unbalanced external force",
       "Its mass changes",
       "It is observed by a scientist",
       "It reaches a certain speed",
+      "It changes its temperature",
     ],
     correctOptionIndex: 0,
     order: 6,
@@ -300,9 +353,10 @@ export const QUESTIONS: Question[] = [
   {
     id: "q4-1",
     quizId: "q4",
-    prompt: "What is the relationship between wave speed v, frequency f, and wavelength λ?",
+    prompt:
+      "What is the relationship between wave speed v, frequency f, and wavelength λ?",
     imageUrl: null,
-    options: ["v = f / λ", "v = λ / f", "v = fλ", "v = f + λ"],
+    options: ["v = f / λ", "v = λ / f", "v = fλ", "v = f + λ", "v = f - λ"],
     correctOptionIndex: 2,
     order: 1,
   },
@@ -316,6 +370,7 @@ export const QUESTIONS: Question[] = [
       "3 × 10⁸ m/s",
       "3 × 10¹⁰ m/s",
       "3 × 10² m/s",
+      "3 × 10⁴ m/s",
     ],
     correctOptionIndex: 1,
     order: 2,
@@ -325,20 +380,22 @@ export const QUESTIONS: Question[] = [
     quizId: "q4",
     prompt: "What is the SI unit of frequency?",
     imageUrl: null,
-    options: ["Hertz", "Watt", "Newton", "Joule"],
+    options: ["Hertz", "Watt", "Newton", "Joule", "Tesla"],
     correctOptionIndex: 0,
     order: 3,
   },
   {
     id: "q4-4",
     quizId: "q4",
-    prompt: "Which of the following best describes the phenomenon of refraction?",
+    prompt:
+      "Which of the following best describes the phenomenon of refraction?",
     imageUrl: null,
     options: [
       "The bending of light as it passes from one medium into another",
       "The bouncing of light off a surface",
       "The spreading of light around an obstacle",
       "The absorption of light by a material",
+      "The reflection of light off a mirror",
     ],
     correctOptionIndex: 0,
     order: 4,
@@ -348,7 +405,13 @@ export const QUESTIONS: Question[] = [
     quizId: "q4",
     prompt: "Sound waves are classified as which type of wave?",
     imageUrl: null,
-    options: ["Transverse", "Longitudinal", "Electromagnetic", "Stationary"],
+    options: [
+      "Transverse",
+      "Longitudinal",
+      "Electromagnetic",
+      "Stationary",
+      "Gravitational",
+    ],
     correctOptionIndex: 1,
     order: 5,
   },
@@ -362,11 +425,12 @@ export const QUESTIONS: Question[] = [
       "The distance between two consecutive identical points on the wave",
       "The maximum displacement of the wave from its rest position",
       "The time taken for one complete wave to pass a point",
+      "The speed at which the wave travels",
     ],
     correctOptionIndex: 1,
     order: 6,
   },
-];
+]
 
 // ─── Students ─────────────────────────────────────────────────────────────────
 
@@ -376,43 +440,47 @@ export const STUDENTS: Student[] = [
     name: "Jamie Chen",
     createdAt: "2025-08-01",
     assignedQuizIds: ["q1", "q2", "q3"],
-    adminMessage: {
-      text: "Great work on last week's networking quiz! Your TCP handshake answer was spot-on. Keep pushing on the security module.",
-      timestamp: "2025-08-28",
-    },
+    messages: [
+      {
+        text: "Great work on last week's Algebra quiz! Your quadratic formula answer was spot-on. Keep pushing on Geometry & Trigonometry.",
+        timestamp: "2025-08-28",
+      },
+    ],
   },
   {
     id: "s2",
     name: "Alex Rivera",
     createdAt: "2025-08-01",
     assignedQuizIds: ["q1", "q4"],
-    adminMessage: null,
+    messages: [],
   },
   {
     id: "s3",
     name: "Sam Okafor",
     createdAt: "2025-08-05",
     assignedQuizIds: ["q2", "q3", "q4"],
-    adminMessage: {
-      text: "Focus on SQL JOIN syntax — there was some confusion in the last session. Review the INNER vs LEFT JOIN examples.",
-      timestamp: "2025-08-27",
-    },
+    messages: [
+      {
+        text: "Focus on the trigonometric identities — there was some confusion during our last practice. Review sin, cos, and tan for standard angles.",
+        timestamp: "2025-08-27",
+      },
+    ],
   },
   {
     id: "s4",
     name: "Priya Nair",
     createdAt: "2025-08-10",
     assignedQuizIds: ["q1", "q2", "q3", "q4"],
-    adminMessage: null,
+    messages: [],
   },
   {
     id: "s5",
     name: "Marcus Webb",
     createdAt: "2025-08-12",
     assignedQuizIds: ["q3", "q4"],
-    adminMessage: null,
+    messages: [],
   },
-];
+]
 
 // ─── Historical Attempts ──────────────────────────────────────────────────────
 
@@ -426,8 +494,20 @@ export const HISTORICAL_ATTEMPTS: HistoricalAttempt[] = [
     total: 2,
     completedAt: "2025-08-22T14:30:00Z",
     answers: [
-      { questionId: "q1-1", chosenOptionIndex: 2, correct: true, tries: 1, trolled: false },
-      { questionId: "q1-3", chosenOptionIndex: 3, correct: true, tries: 2, trolled: false },
+      {
+        questionId: "q1-1",
+        chosenOptionIndex: 2,
+        correct: true,
+        tries: 1,
+        trolled: false,
+      },
+      {
+        questionId: "q1-3",
+        chosenOptionIndex: 3,
+        correct: true,
+        tries: 2,
+        trolled: false,
+      },
     ],
   },
   {
@@ -439,9 +519,27 @@ export const HISTORICAL_ATTEMPTS: HistoricalAttempt[] = [
     total: 3,
     completedAt: "2025-08-26T10:15:00Z",
     answers: [
-      { questionId: "q2-1", chosenOptionIndex: 2, correct: true, tries: 1, trolled: false },
-      { questionId: "q2-2", chosenOptionIndex: 2, correct: false, tries: 3, trolled: true },
-      { questionId: "q2-4", chosenOptionIndex: 2, correct: true, tries: 1, trolled: false },
+      {
+        questionId: "q2-1",
+        chosenOptionIndex: 2,
+        correct: true,
+        tries: 1,
+        trolled: false,
+      },
+      {
+        questionId: "q2-2",
+        chosenOptionIndex: 2,
+        correct: false,
+        tries: 3,
+        trolled: true,
+      },
+      {
+        questionId: "q2-4",
+        chosenOptionIndex: 2,
+        correct: true,
+        tries: 1,
+        trolled: false,
+      },
     ],
   },
   {
@@ -453,7 +551,13 @@ export const HISTORICAL_ATTEMPTS: HistoricalAttempt[] = [
     total: 1,
     completedAt: "2025-08-15T09:00:00Z",
     answers: [
-      { questionId: "q1-2", chosenOptionIndex: 0, correct: true, tries: 1, trolled: false },
+      {
+        questionId: "q1-2",
+        chosenOptionIndex: 0,
+        correct: true,
+        tries: 1,
+        trolled: false,
+      },
     ],
   },
   {
@@ -465,9 +569,27 @@ export const HISTORICAL_ATTEMPTS: HistoricalAttempt[] = [
     total: 3,
     completedAt: "2025-08-24T16:45:00Z",
     answers: [
-      { questionId: "q4-1", chosenOptionIndex: 2, correct: true, tries: 1, trolled: false },
-      { questionId: "q4-3", chosenOptionIndex: 1, correct: false, tries: 3, trolled: true },
-      { questionId: "q4-5", chosenOptionIndex: 1, correct: true, tries: 2, trolled: false },
+      {
+        questionId: "q4-1",
+        chosenOptionIndex: 2,
+        correct: true,
+        tries: 1,
+        trolled: false,
+      },
+      {
+        questionId: "q4-3",
+        chosenOptionIndex: 1,
+        correct: false,
+        tries: 3,
+        trolled: true,
+      },
+      {
+        questionId: "q4-5",
+        chosenOptionIndex: 1,
+        correct: true,
+        tries: 2,
+        trolled: false,
+      },
     ],
   },
   {
@@ -479,8 +601,20 @@ export const HISTORICAL_ATTEMPTS: HistoricalAttempt[] = [
     total: 2,
     completedAt: "2025-08-19T11:30:00Z",
     answers: [
-      { questionId: "q2-3", chosenOptionIndex: 1, correct: true, tries: 1, trolled: false },
-      { questionId: "q2-5", chosenOptionIndex: 1, correct: true, tries: 2, trolled: false },
+      {
+        questionId: "q2-3",
+        chosenOptionIndex: 1,
+        correct: true,
+        tries: 1,
+        trolled: false,
+      },
+      {
+        questionId: "q2-5",
+        chosenOptionIndex: 1,
+        correct: true,
+        tries: 2,
+        trolled: false,
+      },
     ],
   },
   {
@@ -492,7 +626,13 @@ export const HISTORICAL_ATTEMPTS: HistoricalAttempt[] = [
     total: 1,
     completedAt: "2025-08-23T13:00:00Z",
     answers: [
-      { questionId: "q3-2", chosenOptionIndex: 0, correct: false, tries: 3, trolled: true },
+      {
+        questionId: "q3-2",
+        chosenOptionIndex: 0,
+        correct: false,
+        tries: 3,
+        trolled: true,
+      },
     ],
   },
   {
@@ -504,8 +644,20 @@ export const HISTORICAL_ATTEMPTS: HistoricalAttempt[] = [
     total: 2,
     completedAt: "2025-08-27T15:20:00Z",
     answers: [
-      { questionId: "q4-2", chosenOptionIndex: 2, correct: true, tries: 1, trolled: false },
-      { questionId: "q4-4", chosenOptionIndex: 0, correct: false, tries: 3, trolled: false },
+      {
+        questionId: "q4-2",
+        chosenOptionIndex: 2,
+        correct: true,
+        tries: 1,
+        trolled: false,
+      },
+      {
+        questionId: "q4-4",
+        chosenOptionIndex: 0,
+        correct: false,
+        tries: 3,
+        trolled: false,
+      },
     ],
   },
   {
@@ -517,9 +669,27 @@ export const HISTORICAL_ATTEMPTS: HistoricalAttempt[] = [
     total: 3,
     completedAt: "2025-08-10T09:00:00Z",
     answers: [
-      { questionId: "q1-1", chosenOptionIndex: 2, correct: true, tries: 1, trolled: false },
-      { questionId: "q1-4", chosenOptionIndex: 2, correct: true, tries: 1, trolled: false },
-      { questionId: "q1-5", chosenOptionIndex: 2, correct: true, tries: 1, trolled: false },
+      {
+        questionId: "q1-1",
+        chosenOptionIndex: 2,
+        correct: true,
+        tries: 1,
+        trolled: false,
+      },
+      {
+        questionId: "q1-4",
+        chosenOptionIndex: 2,
+        correct: true,
+        tries: 1,
+        trolled: false,
+      },
+      {
+        questionId: "q1-5",
+        chosenOptionIndex: 2,
+        correct: true,
+        tries: 1,
+        trolled: false,
+      },
     ],
   },
   {
@@ -531,8 +701,20 @@ export const HISTORICAL_ATTEMPTS: HistoricalAttempt[] = [
     total: 2,
     completedAt: "2025-08-20T10:00:00Z",
     answers: [
-      { questionId: "q1-2", chosenOptionIndex: 0, correct: true, tries: 1, trolled: false },
-      { questionId: "q1-6", chosenOptionIndex: 0, correct: false, tries: 2, trolled: false },
+      {
+        questionId: "q1-2",
+        chosenOptionIndex: 0,
+        correct: true,
+        tries: 1,
+        trolled: false,
+      },
+      {
+        questionId: "q1-6",
+        chosenOptionIndex: 0,
+        correct: false,
+        tries: 2,
+        trolled: false,
+      },
     ],
   },
   {
@@ -544,9 +726,27 @@ export const HISTORICAL_ATTEMPTS: HistoricalAttempt[] = [
     total: 3,
     completedAt: "2025-08-25T14:00:00Z",
     answers: [
-      { questionId: "q2-1", chosenOptionIndex: 2, correct: true, tries: 1, trolled: false },
-      { questionId: "q2-4", chosenOptionIndex: 2, correct: true, tries: 1, trolled: false },
-      { questionId: "q2-6", chosenOptionIndex: 1, correct: true, tries: 2, trolled: false },
+      {
+        questionId: "q2-1",
+        chosenOptionIndex: 2,
+        correct: true,
+        tries: 1,
+        trolled: false,
+      },
+      {
+        questionId: "q2-4",
+        chosenOptionIndex: 2,
+        correct: true,
+        tries: 1,
+        trolled: false,
+      },
+      {
+        questionId: "q2-6",
+        chosenOptionIndex: 1,
+        correct: true,
+        tries: 2,
+        trolled: false,
+      },
     ],
   },
-];
+]

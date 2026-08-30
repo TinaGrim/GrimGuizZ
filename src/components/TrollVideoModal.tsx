@@ -1,37 +1,40 @@
-import { useState, useEffect } from "react";
-import { X, Play } from "lucide-react";
+import { useState, useEffect } from "react"
+import { X, Play } from "lucide-react"
 
 interface TrollVideoModalProps {
-  onClose: () => void;
+  onClose: () => void
 }
 
 export default function TrollVideoModal({ onClose }: TrollVideoModalProps) {
-  const [playing, setPlaying] = useState(false);
-  const [countdown, setCountdown] = useState<number | null>(null);
-  const [canSkip, setCanSkip] = useState(false);
+  const [playing, setPlaying] = useState(false)
+  const [countdown, setCountdown] = useState<number | null>(null)
+  const [canSkip, setCanSkip] = useState(false)
 
   useEffect(() => {
     if (playing) {
-      setCountdown(5);
+      setCountdown(5)
       const interval = setInterval(() => {
         setCountdown((prev) => {
-          if (prev === null) return null;
+          if (prev === null) return null
           if (prev <= 1) {
-            clearInterval(interval);
-            setCanSkip(true);
-            return null;
+            clearInterval(interval)
+            setCanSkip(true)
+            return null
           }
-          return prev - 1;
-        });
-      }, 1000);
-      return () => clearInterval(interval);
+          return prev - 1
+        })
+      }, 1000)
+      return () => clearInterval(interval)
     }
-  }, [playing]);
+  }, [playing])
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(28, 15, 0, 0.88)", backdropFilter: "blur(4px)" }}
+      style={{
+        background: "rgba(28, 15, 0, 0.88)",
+        backdropFilter: "blur(4px)",
+      }}
     >
       <div
         className="relative w-full max-w-lg animate-pop-in"
@@ -55,7 +58,10 @@ export default function TrollVideoModal({ onClose }: TrollVideoModalProps) {
           <div className="flex items-center justify-between mb-4">
             <h2
               className="text-3xl font-900"
-              style={{ fontFamily: "var(--font-display)", color: "var(--color-amber)" }}
+              style={{
+                fontFamily: "var(--font-display)",
+                color: "var(--color-amber)",
+              }}
             >
               Three Strikes!
             </h2>
@@ -110,7 +116,12 @@ export default function TrollVideoModal({ onClose }: TrollVideoModalProps) {
                     border: "3px solid #fff",
                   }}
                 >
-                  <Play size={32} fill="#fff" color="#fff" style={{ marginLeft: 4 }} />
+                  <Play
+                    size={32}
+                    fill="#fff"
+                    color="#fff"
+                    style={{ marginLeft: 4 }}
+                  />
                 </div>
                 <p
                   className="text-base font-600 px-4 py-1.5"
@@ -154,9 +165,13 @@ export default function TrollVideoModal({ onClose }: TrollVideoModalProps) {
                 </p>
                 <p
                   className="text-sm"
-                  style={{ color: "rgba(255,255,255,0.5)", fontFamily: "var(--font-body)" }}
+                  style={{
+                    color: "rgba(255,255,255,0.5)",
+                    fontFamily: "var(--font-body)",
+                  }}
                 >
-                  Admin would upload an actual video here. For now — you know the song.
+                  Admin would upload an actual video here. For now — you know
+                  the song.
                 </p>
               </div>
 
@@ -195,13 +210,20 @@ export default function TrollVideoModal({ onClose }: TrollVideoModalProps) {
             </div>
             <p
               className="text-sm"
-              style={{ color: "rgba(255,255,255,0.55)", fontFamily: "var(--font-body)", lineHeight: 1.6 }}
+              style={{
+                color: "rgba(255,255,255,0.55)",
+                fontFamily: "var(--font-body)",
+                lineHeight: 1.6,
+              }}
             >
-              That question has been marked wrong. {canSkip ? "Close this to move on." : "Watch the clip, then skip to continue."}
+              That question has been marked wrong.{" "}
+              {canSkip
+                ? "Close this to move on."
+                : "Watch the clip, then skip to continue."}
             </p>
           </div>
         </div>
       </div>
     </div>
-  );
+  )
 }

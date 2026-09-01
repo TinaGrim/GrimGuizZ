@@ -1,129 +1,203 @@
-import { useState, useEffect, useCallback } from "react"
-import { useNavigate, useParams } from "react-router"
-import { useApp } from "../store/AppContext"
-import TrollVideoModal from "../components/TrollVideoModal"
-import { CheckCircle, XCircle } from "lucide-react"
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate, useParams } from "react-router";
+import { useApp } from "../store/AppContext";
+import { QuizTaking } from "../api/client";
+import TrollVideoModal from "../components/TrollVideoModal";
+import MathText from "../components/MathText";
+import { CheckCircle, XCircle, Clock } from "lucide-react";
+import type { QuestionServed } from "../data/types";
 
-type OptionState = "default" | "selected" | "correct" | "wrong"
+type OptionState = "default" | "selected" | "correct" | "wrong";
+
+const OPTION_COUNT = 5;
+
+function formatTime(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
 
 export default function QuestionScreen() {
-  const { quizId } = useParams<{ quizId: string }>()
-  const navigate = useNavigate()
+  const { quizId } = useParams<{ quizId: string }>();
+  const navigate = useNavigate();
   const {
     currentStudent,
     questionsServed,
     currentQuestionIndex,
     currentTries,
+    attemptId,
     submitAnswer,
     advanceQuestion,
     completeQuiz,
-  } = useApp()
+  } = useApp();
 
-  const [selectedOption, setSelectedOption] = useState<number | null>(null)
-  const [optionStates, setOptionStates] = useState<OptionState[]>([
-    "default",
-    "default",
-    "default",
-    "default",
-    "default",
-  ])
-  const [feedback, setFeedback] = useState<{
-    type: "wrong" | "correct"
-    message: string
-  } | null>(null)
-  const [showTroll, setShowTroll] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
-  const [correctIndex, setCorrectIndex] = useState<number | null>(null)
-  const [shakeKey, setShakeKey] = useState(0)
-  const [advancing, setAdvancing] = useState(false)
+  const [selectedOption, setSelectedOption] = useState<number | null>(null);
+  const [optionStates, setOptionStates] = useState<OptionState[]>(
+    Array(OPTION_COUNT).fill("default") as OptionState[],
+  );
+  const [feedback, setFeedback] = useState<{ type: "wrong" | "correct"; message: string } | null>(null);
+  const [showTroll, setShowTroll] = useState(false);
+  const [trollVideoUrl, setTrollVideoUrl] = useState<string | null>(null);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [timeUp, setTimeUp] = useState(false);
+  const timedUpRef = useRef(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [shakeKey, setShakeKey] = useState(0);
+  const [advancing, setAdvancing] = useState(false);
+  const selectedIndexRef = useRef<number | null>(null);
+  const optionStatesRef = useRef<OptionState[]>(
+    Array(OPTION_COUNT).fill("default") as OptionState[],
+  );
+  // Phase A instrumentation: per-question choice history + timing.
+  const choicesRef = useRef<number[]>([]);
+  const questionShownAtRef = useRef<number>(Date.now());
 
-  const question = questionsServed[currentQuestionIndex]
+  const question: QuestionServed | undefined = questionsServed[currentQuestionIndex];
+
+  // Per-question timer limit in seconds (null when no limit is set).
+  const timeLimitSeconds = question?.timeLimitMinutes
+    ? question.timeLimitMinutes * 60
+    : null;
 
   useEffect(() => {
     if (!currentStudent || questionsServed.length === 0) {
-      navigate("/")
-      return
+      navigate("/");
+      return;
     }
-    // Reset state for each new question
-    setSelectedOption(null)
-    setOptionStates(["default", "default", "default", "default", "default"])
-    setFeedback(null)
-    setSubmitted(false)
-    setCorrectIndex(null)
-    setAdvancing(false)
-  }, [currentQuestionIndex, currentStudent, questionsServed, navigate])
+    setSelectedOption(null);
+    selectedIndexRef.current = null;
+    const fresh = Array(OPTION_COUNT).fill("default") as OptionState[];
+    setOptionStates(fresh);
+    optionStatesRef.current = fresh;
+    setFeedback(null);
+    setSubmitted(false);
+    setAdvancing(false);
+    setShowTroll(false);
+    setTrollVideoUrl(null);
+    setTimeUp(false);
+    timedUpRef.current = false;
+    // Reset per-question instrumentation when the question changes.
+    choicesRef.current = [];
+    questionShownAtRef.current = Date.now();
+  }, [currentQuestionIndex, currentStudent, questionsServed, navigate]);
 
-  // Block browser back-button during quiz
+  // Block browser back-button during quiz — router guard per §10.1.
   useEffect(() => {
     const onPop = (e: PopStateEvent) => {
-      e.preventDefault()
-      window.history.pushState(null, "", window.location.href)
+      e.preventDefault();
+      window.history.pushState(null, "", window.location.href);
+    };
+    window.history.pushState(null, "", window.location.href);
+    window.addEventListener("popstate", onPop);
+
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  }, []);
+
+  // Per-question countdown: reset when the question (or its limit) changes.
+  useEffect(() => {
+    setTimeLeft(
+      question?.timeLimitMinutes ? question.timeLimitMinutes * 60 : null,
+    );
+  }, [currentQuestionIndex, question?.timeLimitMinutes]);
+
+  // Tick down every second while a limit is active and the question is live.
+  useEffect(() => {
+    if (timeLimitSeconds === null) return;
+    if (timeUp || submitted) return;
+    const id = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev === null || prev <= 1) {
+          clearInterval(id);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [timeLimitSeconds, timeUp, submitted]);
+
+  const handleSubmit = useCallback(async () => {
+    if (selectedIndexRef.current === null || submitted || !question) return;
+    setSubmitted(true);
+
+    // Phase A instrumentation: per-question choice history + time-on-question.
+    const pickedIndex = selectedIndexRef.current;
+    choicesRef.current.push(pickedIndex);
+    const elapsedMs = Date.now() - questionShownAtRef.current;
+    // Reset the per-try clock so subsequent retries only charge for the
+    // time spent on that retry, not the cumulative time.
+    questionShownAtRef.current = Date.now();
+
+    const { correct, tries, shouldTroll, trollVideoUrl } = await submitAnswer(
+      question.questionId,
+      pickedIndex,
+      choicesRef.current,
+      elapsedMs / 1000,
+    );
+
+    // Preserve prior wrong markings — the warning sticks on each option
+    // until the question itself finishes (correct, or 3rd-miss troll).
+    const prev = optionStatesRef.current;
+    const newStates = Array(OPTION_COUNT).fill("default") as OptionState[];
+    for (let k = 0; k < OPTION_COUNT; k++) {
+      if (prev[k] === "wrong") newStates[k] = "wrong";
     }
-    window.history.pushState(null, "", window.location.href)
-    window.addEventListener("popstate", onPop)
-    return () => window.removeEventListener("popstate", onPop)
-  }, [])
-
-  const handleSubmit = useCallback(() => {
-    if (selectedOption === null || submitted) return
-
-    const { correct, tries, shouldTroll } = submitAnswer(
-      question.id,
-      selectedOption,
-    )
-    setSubmitted(true)
-
-    const newStates: OptionState[] = [
-      "default",
-      "default",
-      "default",
-      "default",
-      "default",
-    ]
 
     if (correct) {
-      newStates[selectedOption] = "correct"
-      setOptionStates(newStates)
-      setFeedback({ type: "correct", message: "That's the one!" })
-      setCorrectIndex(selectedOption)
-
-      setTimeout(() => {
-        advance()
-      }, 1200)
+      newStates[selectedIndexRef.current] = "correct";
+      optionStatesRef.current = newStates;
+      setOptionStates(newStates);
+      setFeedback({ type: "correct", message: "That's the one!" });
+      setTimeout(() => advance(), 1200);
     } else {
-      newStates[selectedOption] = "wrong"
-      setOptionStates(newStates)
-      setShakeKey((k) => k + 1)
+      // Mark the chosen option wrong and keep it highlighted + disabled.
+      // selectedOption stays set so the user sees which one they got wrong.
+      newStates[selectedIndexRef.current] = "wrong";
+      optionStatesRef.current = newStates;
+      setOptionStates(newStates);
+      setShakeKey((k) => k + 1);
 
       if (shouldTroll) {
-        // Show troll video before marking wrong and moving on
-        setTimeout(() => {
-          setShowTroll(true)
-        }, 400)
+        setTrollVideoUrl(trollVideoUrl ?? null);
+        setTimeout(() => setShowTroll(true), 400);
       } else {
         const msg =
-          tries === 1 ? "Not quite — try again!" : "So close — one more try!"
-        setFeedback({ type: "wrong", message: msg })
-
-        // Re-enable for next try
-        setTimeout(() => {
-          setSubmitted(false)
-          setSelectedOption(null)
-          // Keep wrong option marked
-        }, 600)
+          tries === 1
+            ? "Not quite — try a different answer."
+            : "Last try — pick another option.";
+        setFeedback({ type: "wrong", message: msg });
+        // Unlock selection so the user can pick a different option.
+        // The wrong one is locked via its `wrong` state in the renderer.
+        setSubmitted(false);
+        setSelectedOption(null);
       }
     }
-  }, [selectedOption, submitted, submitAnswer, question])
+  }, [submitted, submitAnswer, question]);
 
-  const advance = useCallback(() => {
-    if (advancing) return
-    setAdvancing(true)
-    const isLast = currentQuestionIndex >= questionsServed.length - 1
+  const advance = useCallback(async () => {
+    if (advancing) return;
+    setAdvancing(true);
+    const isLast = currentQuestionIndex >= questionsServed.length - 1;
     if (isLast) {
-      const result = completeQuiz()
-      navigate(`/quiz/${quizId}/results`, { state: result })
+      try {
+        if (!attemptId) throw new Error("Missing attempt id");
+        const summary = await QuizTaking.complete(attemptId);
+        const result = completeQuiz(summary);
+        navigate(`/quiz/${quizId}/results`, { state: result });
+      } catch (e) {
+        console.error(e);
+        navigate("/quizzes");
+      }
     } else {
-      advanceQuestion()
+      advanceQuestion();
     }
   }, [
     advancing,
@@ -133,43 +207,50 @@ export default function QuestionScreen() {
     navigate,
     quizId,
     advanceQuestion,
-  ])
+    attemptId,
+  ]);
 
   const handleTrollClose = () => {
-    setShowTroll(false)
-    // Show correct answer
-    const newStates: OptionState[] = [
-      "default",
-      "default",
-      "default",
-      "default",
-      "default",
-    ]
-    newStates[selectedOption!] = "wrong"
-    newStates[question.correctOptionIndex] = "correct"
-    setOptionStates(newStates)
-    setCorrectIndex(question.correctOptionIndex)
-    setFeedback({
-      type: "wrong",
-      message: "Marked wrong. The correct answer is highlighted below.",
-    })
+    setShowTroll(false);
+    setTimeout(() => advance(), 600);
+  };
 
-    setTimeout(() => advance(), 1800)
-  }
+  // Time's up: auto-submit a selected option, otherwise skip ahead.
+  const handleTimeUp = useCallback(() => {
+    if (timedUpRef.current) return;
+    timedUpRef.current = true;
+    setTimeUp(true);
+    setTimeLeft(0);
+    if (submitted) return;
+    if (selectedIndexRef.current !== null) {
+      handleSubmit();
+    } else {
+      setFeedback({ type: "wrong", message: "Time's up — no answer submitted." });
+      setTimeout(() => advance(), 900);
+    }
+  }, [submitted, handleSubmit, advance]);
 
-  if (!question) return null
+  // Fire once when the countdown reaches zero.
+  useEffect(() => {
+    if (timeLeft === 0 && timeLimitSeconds !== null && !timedUpRef.current) {
+      handleTimeUp();
+    }
+  }, [timeLeft, timeLimitSeconds, handleTimeUp]);
 
-  const isLast = currentQuestionIndex >= questionsServed.length - 1
+  if (!question) return null;
+
+  const isLast = currentQuestionIndex >= questionsServed.length - 1;
 
   return (
     <>
-      {showTroll && <TrollVideoModal onClose={handleTrollClose} />}
+      {showTroll && (
+        <TrollVideoModal onClose={handleTrollClose} videoUrl={trollVideoUrl} />
+      )}
 
       <div
         className="min-h-screen flex flex-col"
         style={{ background: "var(--color-cream)" }}
       >
-        {/* Progress header */}
         <div
           className="sticky top-0 z-10 px-6 py-4"
           style={{
@@ -188,7 +269,6 @@ export default function QuestionScreen() {
               Question {currentQuestionIndex + 1} of {questionsServed.length}
             </span>
 
-            {/* Progress bar */}
             <div
               className="flex-1 mx-6 h-2 overflow-hidden"
               style={{ background: "rgba(255,255,255,0.1)" }}
@@ -223,7 +303,6 @@ export default function QuestionScreen() {
             </div>
           </div>
 
-          {/* Attempt pips */}
           <div className="max-w-3xl mx-auto flex items-center gap-2 mt-2">
             <span
               className="text-xs"
@@ -252,7 +331,6 @@ export default function QuestionScreen() {
         </div>
 
         <div className="flex-1 max-w-3xl mx-auto w-full px-6 py-8 flex flex-col gap-6">
-          {/* Question image */}
           {question.imageUrl && (
             <div
               className="w-full overflow-hidden"
@@ -271,7 +349,6 @@ export default function QuestionScreen() {
             </div>
           )}
 
-          {/* Question prompt */}
           <div
             className="p-6"
             style={{
@@ -282,56 +359,102 @@ export default function QuestionScreen() {
           >
             <p
               className="text-lg leading-relaxed font-500"
-              style={{
-                fontFamily: "var(--font-body)",
-                color: "var(--color-ink)",
-              }}
+              style={{ fontFamily: "var(--font-body)", color: "var(--color-ink)" }}
             >
-              {question.prompt}
+              <MathText text={question.prompt} />
             </p>
           </div>
 
-          {/* Options */}
+          {timeLimitSeconds !== null && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between px-1">
+                <span
+                  className="text-xs font-600 uppercase tracking-wider flex items-center gap-1.5"
+                  style={{
+                    color: timeUp ? "var(--color-ember)" : "var(--color-ink-muted)",
+                    fontFamily: "var(--font-body)",
+                    letterSpacing: "0.1em",
+                  }}
+                >
+                  <Clock size={12} /> Time left
+                </span>
+                <span
+                  className="text-sm font-700 tabular-nums"
+                  style={{
+                    color:
+                      timeLeft !== null && timeLeft <= 30
+                        ? "var(--color-ember)"
+                        : "var(--color-ink)",
+                    fontFamily: "var(--font-body)",
+                  }}
+                >
+                  {timeUp ? "0:00" : formatTime(timeLeft ?? timeLimitSeconds)}
+                </span>
+              </div>
+              <div
+                className="h-2.5 overflow-hidden"
+                style={{ background: "var(--color-cream-dark)" }}
+              >
+                <div
+                  className="h-full transition-all duration-1000 ease-linear"
+                  style={{
+                    width: `${((timeLeft ?? timeLimitSeconds) / timeLimitSeconds) * 100}%`,
+                    background:
+                      timeLeft !== null && timeLeft <= 30
+                        ? "var(--color-ember)"
+                        : "var(--color-teal)",
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
           <div key={shakeKey} className="flex flex-col gap-3">
             {question.options.map((option, i) => {
-              const state = optionStates[i]
-              const isDisabled = submitted && state === "default"
-
+              const state = optionStates[i] ?? "default";
+              // Lock options that are already known-wrong from a prior try,
+              // and lock all options briefly while a submit is in flight.
+              const isLocked = state === "wrong" || state === "correct";
+              const isDisabled = isLocked || (submitted && state === "default");
               return (
                 <div
                   key={i}
                   onClick={() => {
-                    if (isDisabled || submitted) return
-                    setSelectedOption(i)
-                    const next: OptionState[] = [
+                    if (isDisabled || submitted) return;
+                    selectedIndexRef.current = i;
+                    setSelectedOption(i);
+                    const next = Array(OPTION_COUNT).fill(
                       "default",
-                      "default",
-                      "default",
-                      "default",
-                      "default",
-                    ]
-                    next[i] = "selected"
-                    setOptionStates(next)
+                    ) as OptionState[];
+                    // Preserve any prior "wrong" markings so the user can't
+                    // re-pick the same wrong answer.
+                    for (let k = 0; k < OPTION_COUNT; k++) {
+                      if (optionStates[k] === "wrong") next[k] = "wrong";
+                    }
+                    next[i] = "selected";
+                    optionStatesRef.current = next;
+                    setOptionStates(next);
                   }}
-                  className={`quiz-option flex items-center gap-4 p-4 ${
-                    state === "wrong" ? "animate-shake" : ""
-                  } ${isDisabled ? "disabled" : ""}`}
+                  className={`quiz-option flex items-center gap-4 p-4 ${state === "wrong" ? "animate-shake" : ""} ${isDisabled ? "disabled" : ""}`}
                   style={{
+                    position: "relative",
                     ...(state === "selected" && {
                       borderColor: "var(--color-ink)",
                       background: "var(--color-cream)",
                     }),
                     ...(state === "correct" && {
-                      borderColor: "var(--color-success)",
-                      background: "#EEF8EF",
+                      borderColor: "var(--color-teal-dark)",
+                      background: "#E6F5F5",
                     }),
                     ...(state === "wrong" && {
-                      borderColor: "var(--color-danger)",
+                      borderColor: "var(--color-ember)",
                       background: "#FDECEA",
+                      cursor: "not-allowed",
+                      opacity: 0.85,
+                      pointerEvents: "none",
                     }),
                   }}
                 >
-                  {/* Option letter */}
                   <div
                     className="shrink-0 flex items-center justify-center text-sm font-700"
                     style={{
@@ -339,9 +462,9 @@ export default function QuestionScreen() {
                       height: 32,
                       background:
                         state === "correct"
-                          ? "var(--color-success)"
+                          ? "var(--color-teal-dark)"
                           : state === "wrong"
-                            ? "var(--color-danger)"
+                            ? "var(--color-ember)"
                             : state === "selected"
                               ? "var(--color-ink)"
                               : "var(--color-cream-dark)",
@@ -362,57 +485,51 @@ export default function QuestionScreen() {
                     className="flex-1 text-sm leading-relaxed"
                     style={{
                       fontFamily: "var(--font-body)",
-                      color: "var(--color-ink)",
+                      color: state === "wrong" ? "var(--color-ember-dark)" : "var(--color-ink)",
+                      textDecoration: state === "wrong" ? "line-through" : "none",
+                      textDecorationThickness: state === "wrong" ? "2px" : undefined,
                     }}
                   >
-                    {option}
+                    <MathText text={option} />
                   </span>
 
                   {state === "correct" && (
                     <CheckCircle
                       size={18}
-                      style={{ color: "var(--color-success)", flexShrink: 0 }}
+                      style={{ color: "var(--color-teal-dark)", flexShrink: 0 }}
                     />
                   )}
                   {state === "wrong" && (
                     <XCircle
                       size={18}
-                      style={{ color: "var(--color-danger)", flexShrink: 0 }}
+                      style={{ color: "var(--color-ember)", flexShrink: 0 }}
                     />
                   )}
                 </div>
-              )
+              );
             })}
           </div>
 
-          {/* Feedback banner */}
           {feedback && (
             <div
               key={feedback.message}
               className="flex items-center gap-3 px-5 py-3.5 animate-slide-up"
               style={{
-                background: feedback.type === "correct" ? "#EEF8EF" : "#FDECEA",
-                border: `2px solid ${
-                  feedback.type === "correct"
-                    ? "var(--color-success)"
-                    : "var(--color-danger)"
-                }`,
-                borderLeft: `5px solid ${
-                  feedback.type === "correct"
-                    ? "var(--color-success)"
-                    : "var(--color-danger)"
-                }`,
+                background:
+                  feedback.type === "correct" ? "#E6F5F5" : "#FDECEA",
+                border: `2px solid ${feedback.type === "correct" ? "var(--color-teal-dark)" : "var(--color-ember)"}`,
+                borderLeft: `5px solid ${feedback.type === "correct" ? "var(--color-teal-dark)" : "var(--color-ember)"}`,
               }}
             >
               {feedback.type === "correct" ? (
                 <CheckCircle
                   size={18}
-                  style={{ color: "var(--color-success)", flexShrink: 0 }}
+                  style={{ color: "var(--color-teal-dark)", flexShrink: 0 }}
                 />
               ) : (
                 <XCircle
                   size={18}
-                  style={{ color: "var(--color-danger)", flexShrink: 0 }}
+                  style={{ color: "var(--color-ember)", flexShrink: 0 }}
                 />
               )}
               <span
@@ -420,8 +537,8 @@ export default function QuestionScreen() {
                 style={{
                   color:
                     feedback.type === "correct"
-                      ? "var(--color-success)"
-                      : "var(--color-danger)",
+                      ? "var(--color-teal-dark)"
+                      : "var(--color-ember-dark)",
                   fontFamily: "var(--font-body)",
                 }}
               >
@@ -430,7 +547,6 @@ export default function QuestionScreen() {
             </div>
           )}
 
-          {/* Submit / Next button */}
           {!submitted && (
             <button
               onClick={handleSubmit}
@@ -442,31 +558,34 @@ export default function QuestionScreen() {
                     ? "var(--color-cream-dark)"
                     : "var(--color-ink)",
                 color:
-                  selectedOption === null ? "var(--color-ink-muted)" : "white",
+                  selectedOption === null
+                    ? "var(--color-ink-muted)"
+                    : "white",
                 border: "2px solid var(--color-ink)",
                 boxShadow:
                   selectedOption === null
                     ? "none"
                     : "4px 4px 0 var(--color-ember)",
                 fontFamily: "var(--font-body)",
-                cursor: selectedOption === null ? "not-allowed" : "pointer",
+                cursor:
+                  selectedOption === null ? "not-allowed" : "pointer",
                 transition: "all 0.15s",
                 letterSpacing: "0.02em",
               }}
               onMouseEnter={(e) => {
                 if (selectedOption !== null) {
-                  ;(e.currentTarget as HTMLButtonElement).style.transform =
-                    "translate(-2px, -2px)"
-                  ;(e.currentTarget as HTMLButtonElement).style.boxShadow =
-                    "6px 6px 0 var(--color-ember)"
+                  (e.currentTarget as HTMLButtonElement).style.transform =
+                    "translate(-2px, -2px)";
+                  (e.currentTarget as HTMLButtonElement).style.boxShadow =
+                    "6px 6px 0 var(--color-ember)";
                 }
               }}
               onMouseLeave={(e) => {
-                ;(e.currentTarget as HTMLButtonElement).style.transform = "none"
-                ;(e.currentTarget as HTMLButtonElement).style.boxShadow =
+                (e.currentTarget as HTMLButtonElement).style.transform = "none";
+                (e.currentTarget as HTMLButtonElement).style.boxShadow =
                   selectedOption !== null
                     ? "4px 4px 0 var(--color-ember)"
-                    : "none"
+                    : "none";
               }}
             >
               Submit Answer
@@ -475,5 +594,5 @@ export default function QuestionScreen() {
         </div>
       </div>
     </>
-  )
+  );
 }

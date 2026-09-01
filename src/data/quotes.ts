@@ -21,10 +21,8 @@ export const WRONG_ANSWER_QUOTES: string[] = [
   "Review the correct answer. It'll click the moment you see it.",
   "You were in the right neighbourhood, just the wrong address.",
   "Knowing what you got wrong is half the preparation for the real thing.",
-]
+];
 
 export function getRandomQuote(): string {
-  return WRONG_ANSWER_QUOTES[
-    Math.floor(Math.random() * WRONG_ANSWER_QUOTES.length)
-  ]
+  return WRONG_ANSWER_QUOTES[Math.floor(Math.random() * WRONG_ANSWER_QUOTES.length)];
 }

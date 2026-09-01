@@ -1,0 +1,34 @@
+# Render "Blueprint" — point Render at this file via
+# `New > Blueprint > Connect repo` and it will create the service
+# automatically. The Docker image is built from backend/Dockerfile.
+#
+# This file is intentionally minimal: everything else is either baked
+# into the image (deps) or set via env-vars / secrets (config).
+services:
+  - type: web
+    name: quizz-api
+    runtime: docker
+    rootDir: backend
+    plan: starter
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      # ─── Required ───────────────────────────────────────────────────
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB
+        value: quizz
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      # `QUIZZ_ENV=production` flips the dev-secret warning into a
+      # hard startup error, so a misconfigured deploy can't run with
+      # the publicly-known default secret.
+      - key: QUIZZ_ENV
+        value: production
+      # ─── Optional but recommended ──────────────────────────────────
+      - key: SEED_TEACHER_USERNAME
+        value: teacher
+      - key: SEED_TEACHER_PASSWORD
+        generateValue: true

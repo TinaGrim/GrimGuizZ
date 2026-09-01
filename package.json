@@ -1,5 +1,5 @@
 {
-  "name": "quizz-platform",
+  "name": "figma-make-app",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -10,6 +10,8 @@
     "format": "oxfmt"
   },
   "dependencies": {
+    "gsap": "^3.15.0",
+    "katex": "^0.18.4",
     "lucide-react": "^1.37.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

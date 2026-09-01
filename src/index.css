@@ -109,6 +109,12 @@ body,
   100% { transform: scale(2.5); opacity: 0; }
 }
 
+@keyframes landingRing {
+  0%   { transform: scale(0.7); opacity: 0; }
+  60%  { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 @keyframes tickerTick {
   0%, 100% { transform: rotate(-3deg); }
   50% { transform: rotate(3deg); }
@@ -171,4 +177,31 @@ body,
 .quiz-option.disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+/* Quiz card expandable header — chevron only appears on hover */
+.quiz-chevron {
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.quiz-header:hover .quiz-chevron {
+  opacity: 1;
+}
+
+/* Chapter card expandable header — chevron only appears on hover */
+.chapter-chevron {
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.chapter-header:hover .chapter-chevron {
+  opacity: 1;
+}
+
+/* Lesson group header — chevron only appears on hover */
+.lesson-chevron {
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.lesson-header:hover .lesson-chevron {
+  opacity: 1;
 }

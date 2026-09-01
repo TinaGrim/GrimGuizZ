@@ -1,40 +1,39 @@
-import { useState, type FormEvent } from "react"
-import { useNavigate } from "react-router"
-import { useApp } from "../store/AppContext"
-import { ArrowRight, BookOpen } from "lucide-react"
+import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router";
+import { useApp } from "../store/AppContext";
+import { ArrowRight, BookOpen } from "lucide-react";
 
 export default function StudentLanding() {
-  const [name, setName] = useState("")
-  const [error, setError] = useState("")
-  const [loading, setLoading] = useState(false)
-  const { loginStudent } = useApp()
-  const navigate = useNavigate()
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const { loginStudent } = useApp();
+  const navigate = useNavigate();
 
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault()
-    if (!name.trim()) return
-    setLoading(true)
-    setError("")
-
-    setTimeout(() => {
-      const student = loginStudent(name)
-      setLoading(false)
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setLoading(true);
+    setError("");
+    try {
+      const student = await loginStudent(name);
       if (student) {
-        navigate("/quizzes")
+        navigate("/quizzes");
       } else {
-        setError(
-          "We couldn't find that name. Double-check it's spelled exactly as your teacher has it on file.",
-        )
+        setError("We don't have any quizzes for that name yet. Check back soon — or double-check the spelling.");
       }
-    }, 400)
-  }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div
       className="min-h-screen flex flex-col"
       style={{ background: "var(--color-cream)" }}
     >
-      {/* Top stripe bar */}
       <div
         className="h-3 w-full shrink-0"
         style={{
@@ -44,12 +43,10 @@ export default function StudentLanding() {
       />
 
       <div className="flex flex-1 flex-col lg:flex-row">
-        {/* Left — hero panel */}
         <div
           className="relative flex flex-col justify-between p-10 lg:p-16 lg:w-1/2"
           style={{ background: "var(--color-ink)" }}
         >
-          {/* Memphis geometric shapes */}
           <div
             className="absolute top-12 right-12 opacity-10"
             style={{
@@ -79,7 +76,6 @@ export default function StudentLanding() {
             }}
           />
 
-          {/* Logo */}
           <div className="relative z-10">
             <div className="flex items-center gap-3 mb-2">
               <div
@@ -101,12 +97,11 @@ export default function StudentLanding() {
                   letterSpacing: "0.15em",
                 }}
               >
-                QuizZ Platform
-              </span>{" "}
+                Quiz<span style={{ fontSize: "1.2em", lineHeight: 1 }}>Z</span> Platform
+              </span>
             </div>
           </div>
 
-          {/* Main heading */}
           <div className="relative z-10 my-auto">
             <h1
               className="font-900 leading-none mb-6"
@@ -117,27 +112,21 @@ export default function StudentLanding() {
                 letterSpacing: "-0.02em",
               }}
             >
-              Quiz
-              <br />
-              Wheel
+              Quiz<span style={{ fontSize: "1.2em", lineHeight: 1 }}>Z</span>
             </h1>
             <p
               className="text-lg leading-relaxed max-w-sm"
-              style={{
-                color: "rgba(255,255,255,0.6)",
-                fontFamily: "var(--font-body)",
-              }}
+              style={{ color: "rgba(255,255,255,0.6)", fontFamily: "var(--font-body)" }}
             >
-              Math &amp; Physics quizzes for students. Spin the wheel, get your
-              questions, and prove what you know — or get acquainted with the
-              troll video.
+              Spin the wheel. Get your questions. Prove what you know — or get
+              acquainted with the troll video.
             </p>
 
-            {/* Feature pills */}
             <div className="flex flex-wrap gap-2 mt-8">
               {[
                 "Spin to pick questions",
                 "3 attempts per question",
+                "Math & Physics",
                 "Instant feedback",
               ].map((f) => (
                 <span
@@ -155,39 +144,31 @@ export default function StudentLanding() {
             </div>
           </div>
 
-          {/* Teacher link */}
           <div className="relative z-10">
             <a
-              href="/teacher"
+              href="/admin"
               className="text-xs font-500 underline underline-offset-2 opacity-30 hover:opacity-60 transition-opacity"
               style={{ color: "#fff", fontFamily: "var(--font-body)" }}
             >
-              I'm a teacher →
+              Teacher login →
             </a>
           </div>
         </div>
 
-        {/* Right — form panel */}
         <div className="flex flex-1 flex-col items-center justify-center p-10 lg:p-16">
           <div className="w-full max-w-sm">
             <h2
               className="text-3xl font-700 mb-2"
-              style={{
-                fontFamily: "var(--font-display)",
-                color: "var(--color-ink)",
-              }}
+              style={{ fontFamily: "var(--font-display)", color: "var(--color-ink)" }}
             >
               Enter your name
             </h2>
             <p
               className="mb-8 text-base"
-              style={{
-                color: "var(--color-ink-muted)",
-                fontFamily: "var(--font-body)",
-              }}
+              style={{ color: "var(--color-ink-muted)", fontFamily: "var(--font-body)" }}
             >
               Your teacher has set up your quizzes. Just type the name they have
-              on file.
+              on file — case doesn't matter.
             </p>
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -196,10 +177,10 @@ export default function StudentLanding() {
                   type="text"
                   value={name}
                   onChange={(e) => {
-                    setName(e.target.value)
-                    setError("")
+                    setName(e.target.value);
+                    setError("");
                   }}
-                  placeholder="e.g. Jamie Chen"
+                  placeholder="e.g. jamie chen"
                   autoFocus
                   className="w-full text-lg px-4 py-3 outline-none"
                   style={{
@@ -212,21 +193,19 @@ export default function StudentLanding() {
                     transition: "box-shadow 0.15s",
                   }}
                   onFocus={(e) => {
-                    e.currentTarget.style.boxShadow =
-                      "6px 6px 0 var(--color-ember)"
-                    e.currentTarget.style.borderColor = "var(--color-ember)"
+                    e.currentTarget.style.boxShadow = "6px 6px 0 var(--color-ember)";
+                    e.currentTarget.style.borderColor = "var(--color-ember)";
                   }}
                   onBlur={(e) => {
-                    e.currentTarget.style.boxShadow =
-                      "4px 4px 0 var(--color-ink)"
-                    e.currentTarget.style.borderColor = "var(--color-ink)"
+                    e.currentTarget.style.boxShadow = "4px 4px 0 var(--color-ink)";
+                    e.currentTarget.style.borderColor = "var(--color-ink)";
                   }}
                 />
                 {error && (
                   <p
                     className="mt-2 text-sm animate-slide-up"
                     style={{
-                      color: "var(--color-danger)",
+                      color: "var(--color-ink-light)",
                       fontFamily: "var(--font-body)",
                     }}
                   >
@@ -248,9 +227,7 @@ export default function StudentLanding() {
                   border: "2px solid var(--color-ink)",
                   borderRadius: 0,
                   boxShadow:
-                    !name.trim() || loading
-                      ? "none"
-                      : "4px 4px 0 var(--color-ink)",
+                    !name.trim() || loading ? "none" : "4px 4px 0 var(--color-ink)",
                   fontFamily: "var(--font-body)",
                   cursor: !name.trim() || loading ? "not-allowed" : "pointer",
                   transition: "all 0.15s",
@@ -258,19 +235,16 @@ export default function StudentLanding() {
                 }}
                 onMouseEnter={(e) => {
                   if (name.trim() && !loading) {
-                    ;(e.currentTarget as HTMLButtonElement).style.transform =
-                      "translate(-2px, -2px)"
-                    ;(e.currentTarget as HTMLButtonElement).style.boxShadow =
-                      "6px 6px 0 var(--color-ink)"
+                    (e.currentTarget as HTMLButtonElement).style.transform =
+                      "translate(-2px, -2px)";
+                    (e.currentTarget as HTMLButtonElement).style.boxShadow =
+                      "6px 6px 0 var(--color-ink)";
                   }
                 }}
                 onMouseLeave={(e) => {
-                  ;(e.currentTarget as HTMLButtonElement).style.transform =
-                    "none"
-                  ;(e.currentTarget as HTMLButtonElement).style.boxShadow =
-                    name.trim() && !loading
-                      ? "4px 4px 0 var(--color-ink)"
-                      : "none"
+                  (e.currentTarget as HTMLButtonElement).style.transform = "none";
+                  (e.currentTarget as HTMLButtonElement).style.boxShadow =
+                    name.trim() && !loading ? "4px 4px 0 var(--color-ink)" : "none";
                 }}
               >
                 {loading ? "Checking…" : "See my quizzes"}
@@ -278,7 +252,6 @@ export default function StudentLanding() {
               </button>
             </form>
 
-            {/* Demo hint */}
             <div
               className="mt-8 p-4 text-sm"
               style={{
@@ -296,5 +269,5 @@ export default function StudentLanding() {
         </div>
       </div>
     </div>
-  )
+  );
 }

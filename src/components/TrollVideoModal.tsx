@@ -1,40 +1,40 @@
-import { useState, useEffect } from "react"
-import { X, Play } from "lucide-react"
+import { useState, useEffect } from "react";
+import { X, Play } from "lucide-react";
 
 interface TrollVideoModalProps {
-  onClose: () => void
+  onClose: () => void;
+  videoUrl?: string | null;
 }
 
-export default function TrollVideoModal({ onClose }: TrollVideoModalProps) {
-  const [playing, setPlaying] = useState(false)
-  const [countdown, setCountdown] = useState<number | null>(null)
-  const [canSkip, setCanSkip] = useState(false)
+export default function TrollVideoModal({ onClose, videoUrl }: TrollVideoModalProps) {
+  const [playing, setPlaying] = useState(Boolean(videoUrl));
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [canSkip, setCanSkip] = useState(false);
+
+  const hasVideo = Boolean(videoUrl);
 
   useEffect(() => {
     if (playing) {
-      setCountdown(5)
+      setCountdown(5);
       const interval = setInterval(() => {
         setCountdown((prev) => {
-          if (prev === null) return null
+          if (prev === null) return null;
           if (prev <= 1) {
-            clearInterval(interval)
-            setCanSkip(true)
-            return null
+            clearInterval(interval);
+            setCanSkip(true);
+            return null;
           }
-          return prev - 1
-        })
-      }, 1000)
-      return () => clearInterval(interval)
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
     }
-  }, [playing])
+  }, [playing]);
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{
-        background: "rgba(28, 15, 0, 0.88)",
-        backdropFilter: "blur(4px)",
-      }}
+      style={{ background: "rgba(28, 15, 0, 0.88)", backdropFilter: "blur(4px)" }}
     >
       <div
         className="relative w-full max-w-lg animate-pop-in"
@@ -54,18 +54,9 @@ export default function TrollVideoModal({ onClose }: TrollVideoModalProps) {
         />
 
         <div className="p-6">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-4">
-            <h2
-              className="text-3xl font-900"
-              style={{
-                fontFamily: "var(--font-display)",
-                color: "var(--color-amber)",
-              }}
-            >
-              Three Strikes!
-            </h2>
-            {canSkip && (
+          {/* Header — playful but no scolding "Three Strikes!" */}
+          <div className="flex items-center justify-end mb-4">
+            {(canSkip || (hasVideo && playing)) && (
               <button
                 onClick={onClose}
                 className="flex items-center gap-1 text-sm px-3 py-1.5"
@@ -84,8 +75,27 @@ export default function TrollVideoModal({ onClose }: TrollVideoModalProps) {
             )}
           </div>
 
-          {/* Video area */}
-          {!playing ? (
+          {/* Video area — a real uploaded video autoplays on open */}
+          {hasVideo ? (
+            <div
+              className="relative flex items-center justify-center overflow-hidden"
+              style={{
+                background: "#0a0500",
+                aspectRatio: "16/9",
+                border: "2px solid rgba(240,165,0,0.3)",
+              }}
+            >
+              <video
+                src={videoUrl!}
+                autoPlay
+                muted
+                playsInline
+                controls
+                className="w-full h-full object-contain"
+                style={{ display: "block" }}
+              />
+            </div>
+          ) : !playing ? (
             <div
               className="relative flex flex-col items-center justify-center cursor-pointer"
               style={{
@@ -116,24 +126,8 @@ export default function TrollVideoModal({ onClose }: TrollVideoModalProps) {
                     border: "3px solid #fff",
                   }}
                 >
-                  <Play
-                    size={32}
-                    fill="#fff"
-                    color="#fff"
-                    style={{ marginLeft: 4 }}
-                  />
+                  <Play size={32} fill="#fff" color="#fff" style={{ marginLeft: 4 }} />
                 </div>
-                <p
-                  className="text-base font-600 px-4 py-1.5"
-                  style={{
-                    background: "rgba(0,0,0,0.7)",
-                    color: "var(--color-amber)",
-                    fontFamily: "var(--font-body)",
-                    border: "1px solid rgba(240,165,0,0.4)",
-                  }}
-                >
-                  Click to play — you earned this.
-                </p>
               </div>
             </div>
           ) : (
@@ -165,13 +159,9 @@ export default function TrollVideoModal({ onClose }: TrollVideoModalProps) {
                 </p>
                 <p
                   className="text-sm"
-                  style={{
-                    color: "rgba(255,255,255,0.5)",
-                    fontFamily: "var(--font-body)",
-                  }}
+                  style={{ color: "rgba(255,255,255,0.5)", fontFamily: "var(--font-body)" }}
                 >
-                  Admin would upload an actual video here. For now — you know
-                  the song.
+                  Your teacher would upload a real video here. For now — you know the song.
                 </p>
               </div>
 
@@ -193,37 +183,8 @@ export default function TrollVideoModal({ onClose }: TrollVideoModalProps) {
               )}
             </div>
           )}
-
-          {/* Footer note */}
-          <div className="mt-4 flex items-start gap-3">
-            <div
-              className="shrink-0 flex items-center justify-center rounded-full text-sm font-700"
-              style={{
-                width: 28,
-                height: 28,
-                background: "var(--color-ember)",
-                color: "#fff",
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              ✗
-            </div>
-            <p
-              className="text-sm"
-              style={{
-                color: "rgba(255,255,255,0.55)",
-                fontFamily: "var(--font-body)",
-                lineHeight: 1.6,
-              }}
-            >
-              That question has been marked wrong.{" "}
-              {canSkip
-                ? "Close this to move on."
-                : "Watch the clip, then skip to continue."}
-            </p>
-          </div>
         </div>
       </div>
     </div>
-  )
+  );
 }

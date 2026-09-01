@@ -12,6 +12,25 @@ logs/
 .claude-replay.*
 .tmp-*
 
+# Python venv (don't commit binaries; recreate on each host).
+backend/.venv/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Local uploads (Render + Vercel need persistent storage, not the
+# repo. The seed flow + media library keep the demo working; new
+# uploads in prod must go to S3 / a volume / Cloudinary.)
+backend/uploads/
+
+# Local working notes / generated docs that aren't source. Safe to
+# remove and recreate.
+imporvement.md
+plan.md
+quizz-excel-export-addendum.md
+*.docx
+.opencode/
+
 # Platform-managed agentplat state, not project source. In the
 # client-initiated single-repo workspace layout (make's `Path: "."` spec) the
 # repo root IS the workspace root, so these land inside this repo rather than

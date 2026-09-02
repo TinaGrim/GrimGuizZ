@@ -33,18 +33,22 @@ export default function AdminReports() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const out: Record<string, StudentReport> = {};
-      for (const s of students) {
-        try {
-          const r = await Teacher.studentReport(s.id, range);
-          out[s.id] = r;
-        } catch {
-          // ignore
-        }
-      }
-      if (!cancelled) setStudentReports(out);
-    })();
+    /*** Per-student detail reports — fetched in PARALLEL, one request per
+     * student, instead of chaining them sequentially (N sequential round-trips
+     * made this page feel like it was loading one student at a time). A
+     * single missing/failed report is skipped without killing the batch. ***/
+    Promise.all(
+      students.map((s) =>
+        Teacher.studentReport(s.id, range).then((r) => ({ s, r })),
+      ),
+    )
+      .then((rows) => {
+        if (cancelled) return;
+        const out: Record<string, StudentReport> = {};
+        for (const { s, r } of rows) out[s.id] = r;
+        setStudentReports(out);
+      })
+      .catch((e) => console.error("student reports failed", e));
     return () => {
       cancelled = true;
     };
@@ -88,34 +92,31 @@ export default function AdminReports() {
     }
   };
 
-  // Build a flat list of "attempts in range" from the per-student reports
-  // (the backend computes these, but the API doesn't expose them per-attempt
-  // for the class view — we lean on per-student recent[] for display).
-  const attemptsThisPeriod = Object.values(studentReports).reduce(
-    (sum, r) => sum + r.attemptCount,
+  // Build stat cards + the class "Recent Attempts" list straight off the
+  // single class-report request (it already ships per-student rollups) so the
+  // page paints after ONE request; the per-student batch below only feeds the
+  // chapter averages and the single-student detail view.
+  const studentsInRange = classReport?.students ?? [];
+  const attemptsThisPeriod = studentsInRange.reduce(
+    (sum, s) => sum + s.attemptCount,
     0,
   );
+  const activeStudents = studentsInRange.filter((s) => s.attemptCount > 0);
   const avgScore =
-    attemptsThisPeriod === 0
+    activeStudents.length === 0
       ? 0
       : Math.round(
-          (Object.values(studentReports).reduce(
-            (s, r) => s + (r.attemptCount > 0 ? r.overallPercent : 0),
-            0,
-          ) /
-            Math.max(
-              Object.values(studentReports).filter((r) => r.attemptCount > 0)
-                .length,
-              1,
-            )) || 0,
+          activeStudents.reduce((s, x) => s + x.averageScore, 0) /
+            activeStudents.length,
         );
 
-  // Group each student's recent attempts for the expandable class list.
-  const studentsWithRecent = students
+  // Group attempts for the expandable class list from the class report (the
+  // backend computes these — no reason to wait for the per-student calls).
+  const studentsWithRecent = studentsInRange
     .map((s) => ({
       studentId: s.id,
       studentName: s.name,
-      attempts: (studentReports[s.id]?.recent ?? [])
+      attempts: s.recent
         .slice()
         .sort((a, b) => (a.completedAt < b.completedAt ? 1 : -1)),
     }))

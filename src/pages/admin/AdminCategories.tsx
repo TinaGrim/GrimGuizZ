@@ -60,8 +60,7 @@ export default function AdminCategories() {
     setError("");
     try {
       await Teacher.deleteChapter(id);
-      await refreshChapters();
-      await refreshLessons();
+      await Promise.all([refreshChapters(), refreshLessons()]);
     } catch (e) {
       setError((e as Error).message);
     }

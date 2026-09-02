@@ -56,8 +56,7 @@ export default function AdminLessons() {
         chapterId: newChapterId,
         title: newTitle.trim(),
       });
-      await refreshLessons();
-      await refreshChapters();
+      await Promise.all([refreshLessons(), refreshChapters()]);
       setNewTitle("");
       setNewChapterId("");
       setShowForm(false);
@@ -101,8 +100,7 @@ export default function AdminLessons() {
         title: editTitle.trim(),
         chapterId: editChapterId,
       });
-      await refreshLessons();
-      await refreshChapters();
+      await Promise.all([refreshLessons(), refreshChapters()]);
       setEditingId(null);
     } catch (e) {
       setError((e as Error).message);
@@ -126,9 +124,7 @@ export default function AdminLessons() {
     setError("");
     try {
       await Teacher.deleteLesson(id);
-      await refreshLessons();
-      await refreshChapters();
-      await refreshQuizzes();
+      await Promise.all([refreshLessons(), refreshChapters(), refreshQuizzes()]);
     } catch (e) {
       setError((e as Error).message);
     }

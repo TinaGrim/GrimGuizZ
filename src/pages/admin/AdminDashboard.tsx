@@ -28,25 +28,25 @@ export default function AdminDashboard() {
       })
       .catch((e) => console.warn("classReport", e));
 
-    (async () => {
-      const out: StudentReport[] = [];
-      for (const s of students) {
-        try {
-          const r = await Teacher.studentReport(s.id, range);
-          if (r.attemptCount > 0) out.push(r);
-        } catch {
-          // ignore
-        }
-      }
-      if (!cancelled) {
-        out.sort((a, b) => a.overallPercent - b.overallPercent);
+    // Per-student detail reports fetched in parallel — doing these
+    // sequentially made the dashboard wait one round-trip per student.
+    Promise.all(
+      students.map((s) =>
+        Teacher.studentReport(s.id, range).catch(() => null),
+      ),
+    )
+      .then((reports) => {
+        if (cancelled) return;
+        const out = reports
+          .filter((r): r is StudentReport => r !== null && r.attemptCount > 0)
+          .sort((a, b) => a.overallPercent - b.overallPercent);
         setAttention(
           out
             .filter((r) => (r.student?.status ?? "on_track") === "needs_attention")
             .slice(0, 4),
         );
-      }
-    })();
+      })
+      .catch(() => {});
 
     return () => {
       cancelled = true;

@@ -304,7 +304,9 @@ const [qTimeLimit, setQTimeLimit] = useState("");
           name: form.newChapterName.trim(),
         });
         chapterId = created.id;
-        await refreshChapters();
+        // Fire-and-forget — don't block the flow on the UI refresh; the next
+        // dependent call (createLesson) can start straight away.
+        void refreshChapters();
       }
       let lessonId = form.lessonId;
       if (form.creatingNewLesson) {
@@ -323,7 +325,7 @@ const [qTimeLimit, setQTimeLimit] = useState("");
           title: form.newLessonTitle.trim(),
         });
         lessonId = created.id;
-        await refreshLessons();
+        void refreshLessons();
       }
       if (!chapterId || !lessonId) {
         setError("Pick or create a chapter and lesson first.");
@@ -356,29 +358,34 @@ const [qTimeLimit, setQTimeLimit] = useState("");
       });
 
       // Persist drafts authored in the New Quiz overlay, then attach them to the pool.
+      // Drafts are independent — create them all in PARALLEL, not one-by-one.
       const createdIds: string[] = [];
-      for (const slot of draftSlots) {
-        const draft = form.drafts.find((d) => d.key === slot.value);
-        if (!draft) continue;
-        const created = await Teacher.createQuestion({
-          quizId: quiz.id,
-          prompt: draft.prompt,
-          options: draft.options,
-          correctOptionIndex: draft.correctOptionIndex,
-          timeLimitMinutes: draft.timeLimitMinutes,
-          imageUrl: draft.imageUrl,
-          trollVideoId: draft.trollVideoId,
-          order: 99,
-        });
-        createdIds.push(created.id);
+      const draftEntries = draftSlots
+        .map((slot) => form.drafts.find((d) => d.key === slot.value))
+        .filter((draft): draft is NonNullable<typeof draft> => Boolean(draft));
+      if (draftEntries.length > 0) {
+        const created = await Promise.all(
+          draftEntries.map((draft) =>
+            Teacher.createQuestion({
+              quizId: quiz.id,
+              prompt: draft.prompt,
+              options: draft.options,
+              correctOptionIndex: draft.correctOptionIndex,
+              timeLimitMinutes: draft.timeLimitMinutes,
+              imageUrl: draft.imageUrl,
+              trollVideoId: draft.trollVideoId,
+              order: 99,
+            }),
+          ),
+        );
+        createdIds.push(...created.map((c) => c.id));
       }
       if (createdIds.length > 0) {
         await Teacher.updateQuiz(quiz.id, {
           questionPoolIds: [...existingPoolIds, ...createdIds],
         });
       }
-      await refreshQuizzes();
-      await refreshQuestions();
+      await Promise.all([refreshQuizzes(), refreshQuestions()]);
       setForm(EMPTY);
       setShowForm(false);
     } catch (e) {
@@ -503,29 +510,34 @@ const [qTimeLimit, setQTimeLimit] = useState("");
             : null,
       });
       // Persist drafts authored in the edit overlay, then attach them to the pool.
+      // Drafts are independent — create them all in PARALLEL, not one-by-one.
       const createdIds: string[] = [];
-      for (const slot of draftSlots) {
-        const draft = editDrafts.find((d) => d.key === slot.value);
-        if (!draft) continue;
-        const created = await Teacher.createQuestion({
-          quizId: editingId,
-          prompt: draft.prompt,
-          options: draft.options,
-          correctOptionIndex: draft.correctOptionIndex,
-          timeLimitMinutes: draft.timeLimitMinutes,
-          imageUrl: draft.imageUrl,
-          trollVideoId: draft.trollVideoId,
-          order: 99,
-        });
-        createdIds.push(created.id);
+      const draftEntries = draftSlots
+        .map((slot) => editDrafts.find((d) => d.key === slot.value))
+        .filter((draft): draft is NonNullable<typeof draft> => Boolean(draft));
+      if (draftEntries.length > 0) {
+        const created = await Promise.all(
+          draftEntries.map((draft) =>
+            Teacher.createQuestion({
+              quizId: editingId,
+              prompt: draft.prompt,
+              options: draft.options,
+              correctOptionIndex: draft.correctOptionIndex,
+              timeLimitMinutes: draft.timeLimitMinutes,
+              imageUrl: draft.imageUrl,
+              trollVideoId: draft.trollVideoId,
+              order: 99,
+            }),
+          ),
+        );
+        createdIds.push(...created.map((c) => c.id));
       }
       if (createdIds.length > 0) {
         await Teacher.updateQuiz(editingId, {
           questionPoolIds: [...existingPoolIds, ...createdIds],
         });
       }
-      await refreshQuizzes();
-      await refreshQuestions();
+      await Promise.all([refreshQuizzes(), refreshQuestions()]);
       setEditingId(null);
     } catch (e) {
       setError((e as Error).message);
@@ -774,7 +786,7 @@ const openEditPoolOverlay = (slotKey: number) => {
       setError("");
       try {
         const created = await Teacher.createChapter({ name });
-        await refreshChapters();
+        void refreshChapters();
         setCatId(created.id);
         setNewCatName("");
         setCreatingCat(false);
@@ -796,8 +808,7 @@ const openEditPoolOverlay = (slotKey: number) => {
           chapterId: catId,
           title,
         });
-        await refreshLessons();
-        await refreshChapters();
+        await Promise.all([refreshLessons(), refreshChapters()]);
         setLessonId(created.id);
         setNewLessonTitle("");
         setCreatingLesson(false);

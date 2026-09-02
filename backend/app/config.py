@@ -81,5 +81,23 @@ class Settings(BaseSettings):
             return [s.strip() for s in v.split(",") if s.strip()]
         return v
 
+    @field_validator("cors_origins", mode="after")
+    @classmethod
+    def _normalize_cors_origins(cls, v: list[str]) -> list[str]:
+        # Strip a single trailing slash from each origin. Browsers send
+        # `Origin: https://example.com` (no slash); users almost always
+        # paste `https://example.com/` into env-var UIs. The two
+        # strings are byte-different and Starlette's CORSMiddleware
+        # compares them with a strict `==`, so a trailing slash turns
+        # the entire Vercel <-> Render request path into a 400.
+        # "https://" never carries a meaningful trailing slash anyway,
+        # so removing it is safe and unblocks the common foot-gun.
+        out: list[str] = []
+        for o in v:
+            if isinstance(o, str) and o.endswith("/") and not o.endswith("://"):
+                o = o[:-1]
+            out.append(o)
+        return out
+
 
 settings = Settings()

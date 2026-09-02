@@ -25,6 +25,7 @@ export default function QuestionScreen() {
     questionsServed,
     currentQuestionIndex,
     currentTries,
+    sessionAnswers,
     attemptId,
     submitAnswer,
     advanceQuestion,
@@ -59,12 +60,48 @@ export default function QuestionScreen() {
   const choicesRef = useRef<number[]>([]);
   const questionShownAtRef = useRef<number>(Date.now());
 
+  // Latest-value refs so the completion callbacks (which are memoized and may
+  // outlive the render that created them) always read the current session
+  // state, never a stale closure.
+  const sessionAnswersRef = useRef(sessionAnswers);
+  sessionAnswersRef.current = sessionAnswers;
+  const questionsServedRef = useRef(questionsServed);
+  questionsServedRef.current = questionsServed;
+  const completeQuizRef = useRef(completeQuiz);
+  completeQuizRef.current = completeQuiz;
+
   const question: QuestionServed | undefined = questionsServed[currentQuestionIndex];
 
   // Per-question timer limit in seconds (null when no limit is set).
   const timeLimitSeconds = question?.timeLimitMinutes
     ? question.timeLimitMinutes * 60
     : null;
+
+  // Locally-known result used to paint the results page instantly while the
+  // `complete` call syncs in the background. Score/total mirror the server's
+  // logic (one point per answered-correctly question, total = served count).
+  const optimisticResult = () => {
+    const answers = sessionAnswersRef.current;
+    return {
+      score: answers.filter((a) => a.correct).length,
+      total: questionsServedRef.current.length,
+      answers: answers.map((a) => ({
+        questionId: a.questionId,
+        chosenOptionIndex: a.chosenOptionIndex,
+        correct: a.correct,
+        tries: a.tries,
+        trolled: a.trolled,
+      })),
+    };
+  };
+
+  // Fire the server-side completion and, when it lands, stash the canonical
+  // summary (drives breakdown / attemptSummary) and refresh the quiz list.
+  const syncComplete = (aid: string) => {
+    QuizTaking.complete(aid)
+      .then((summary) => completeQuizRef.current(summary))
+      .catch((err) => console.error("complete sync failed:", err));
+  };
 
   useEffect(() => {
     if (!currentStudent || questionsServed.length === 0) {
@@ -163,17 +200,12 @@ export default function QuestionScreen() {
     // server's summary instead of treating this as a wrong answer — that
     // previously unlocked the options and looped "Attempt already completed".
     if (completedAttempt) {
-      try {
-        if (!attemptId) throw new Error("Missing attempt id");
-        finishingRef.current = true;
-        const summary = await QuizTaking.complete(attemptId);
-        const result = completeQuiz(summary);
-        navigate(`/quiz/${quizId}/results`, { state: result });
-      } catch (err) {
-        finishingRef.current = false;
-        console.error(err);
-        navigate("/quizzes");
-      }
+      finishingRef.current = true;
+      // The attempt is already finished server-side — don't wait on another
+      // round-trip to show the result. Navigate now with the locally-known
+      // score and let the summary sync in the background.
+      navigate(`/quiz/${quizId}/results`, { state: optimisticResult() });
+      if (attemptId) syncComplete(attemptId);
       return;
     }
 
@@ -229,17 +261,12 @@ export default function QuestionScreen() {
     setAdvancing(true);
     const isLast = currentQuestionIndex >= questionsServed.length - 1;
     if (isLast) {
-      try {
-        if (!attemptId) throw new Error("Missing attempt id");
-        finishingRef.current = true;
-        const summary = await QuizTaking.complete(attemptId);
-        const result = completeQuiz(summary);
-        navigate(`/quiz/${quizId}/results`, { state: result });
-      } catch (e) {
-        finishingRef.current = false;
-        console.error(e);
-        navigate("/quizzes");
-      }
+      finishingRef.current = true;
+      // Optimistic: show results the moment the last question resolves, then
+      // set the canonical attempt summary + refresh the quiz list when the
+      // server confirms. `completeQuiz` (context) clears the session.
+      navigate(`/quiz/${quizId}/results`, { state: optimisticResult() });
+      if (attemptId) syncComplete(attemptId);
     } else {
       advanceQuestion();
     }

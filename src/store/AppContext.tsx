@@ -4,6 +4,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useRef,
   type ReactNode,
 } from "react";
 import { Students, Teacher, QuizTaking, ApiError, type QuestionServed, type AttemptSummary, type ActiveAttempt } from "../api/client";
@@ -129,6 +130,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [attemptSummary, setAttemptSummary] = useState<AttemptSummary | null>(null);
   const [pendingResume, setPendingResume] = useState<ActiveAttempt | null>(null);
+  // Set right after loginStudent lands so the revalidation effect below
+  // doesn't fire a second, fully redundant `enter` request on the same
+  // student (login already fetched the catalog).
+  const skipRevalidateRef = useRef(false);
 
   // Teacher
   const [teacherToken, setTeacherToken] = useState<string | null>(
@@ -231,10 +236,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // surfaces the "Continue or Cancel" resume prompt.
   useEffect(() => {
     if (!currentStudent) return;
+    // A fresh `loginStudent` pass already pulled the catalog via `enter` —
+    // skip the duplicate round-trip (otherwise the dashboard fires enter
+    // twice back-to-back for nothing).
+    if (skipRevalidateRef.current) {
+      skipRevalidateRef.current = false;
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
-        const r = await Students.enter(currentStudent.name);
+        // Revalidation and the resume check are independent — fire them in
+        // PARALLEL, never chaining the active-attempt request behind enter.
+        const [r, resume] = await Promise.all([
+          Students.enter(currentStudent.name),
+          localStorage.getItem(RESUME_KEY)
+            ? Students.activeAttempt(currentStudent.id)
+            : Promise.resolve(null),
+        ]);
         if (cancelled) return;
         if (r.student.id === "unknown") {
           // The student no longer exists server-side — clear the stale session.
@@ -246,15 +265,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setQuizzes(r.quizzes);
         setChapters(r.chapters ?? []);
         setLessons(r.lessons ?? []);
-
-        // If we only just came from the login action we don't want to prompt,
-        // but on a genuine reload we do. Track via the resume key: it is set
-        // when a quiz actually starts and cleared on completion/abandon.
-        if (localStorage.getItem(RESUME_KEY)) {
-          const { attempt } = await Students.activeAttempt(currentStudent.id);
-          if (cancelled) return;
-          if (attempt) setPendingResume(attempt);
-          else localStorage.removeItem(RESUME_KEY);
+        if (resume?.attempt) {
+          setPendingResume(resume.attempt);
+        } else {
+          localStorage.removeItem(RESUME_KEY);
         }
       } catch {
         // Offline or server error — keep the cached student so the refresh
@@ -280,6 +294,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // of /enter so the dashboard renders correctly without teacher auth.
       setChapters(r.chapters ?? []);
       setLessons(r.lessons ?? []);
+      // Catalog already hydrated by this call — don't re-`enter` in the
+      // revalidation effect below.
+      skipRevalidateRef.current = true;
       return r.student;
     } catch (e) {
       setError((e as Error).message);

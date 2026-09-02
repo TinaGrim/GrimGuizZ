@@ -116,7 +116,7 @@ export default function AdminReports() {
     .map((s) => ({
       studentId: s.id,
       studentName: s.name,
-      attempts: s.recent
+      attempts: (s.recent ?? [])
         .slice()
         .sort((a, b) => (a.completedAt < b.completedAt ? 1 : -1)),
     }))

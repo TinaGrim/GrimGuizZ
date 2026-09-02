@@ -51,8 +51,15 @@ export default function Results() {
   };
 
   useEffect(() => {
-    if (!currentStudent || !state) {
+    if (!currentStudent) {
       navigate("/");
+      return;
+    }
+    if (!state) {
+      // No summary passed in (direct URL hit / refresh on the results
+      // page). The attempt already completed server-side; send a still
+      // logged-in student to their quiz list rather than the name screen.
+      navigate("/quizzes");
       return;
     }
     if (state.answers) {

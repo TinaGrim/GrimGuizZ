@@ -44,6 +44,13 @@ export default function QuestionScreen() {
   const [submitted, setSubmitted] = useState(false);
   const [shakeKey, setShakeKey] = useState(0);
   const [advancing, setAdvancing] = useState(false);
+  // Set when we're tearing down the quiz (completing the attempt + heading
+  // to results). The completion flow clears `questionsServed` *before* the
+  // (transition-priority) results navigation commits, so in between React
+  // can re-render this screen with an empty `questionsServed`; without this
+  // flag the mount guard below would race that navigation and bounce the
+  // student back to the landing page. §finished-attempt vs redirect guard.
+  const finishingRef = useRef(false);
   const selectedIndexRef = useRef<number | null>(null);
   const optionStatesRef = useRef<OptionState[]>(
     Array(OPTION_COUNT).fill("default") as OptionState[],
@@ -61,6 +68,13 @@ export default function QuestionScreen() {
 
   useEffect(() => {
     if (!currentStudent || questionsServed.length === 0) {
+      // A quiz is being torn down right now (completeQuiz cleared our
+      // questionsServed just before the results navigation). Don't fight
+      // the transition — drop out and let the navigation to results land.
+      if (finishingRef.current) {
+        finishingRef.current = false;
+        return;
+      }
       navigate("/");
       return;
     }
@@ -151,10 +165,12 @@ export default function QuestionScreen() {
     if (completedAttempt) {
       try {
         if (!attemptId) throw new Error("Missing attempt id");
+        finishingRef.current = true;
         const summary = await QuizTaking.complete(attemptId);
         const result = completeQuiz(summary);
         navigate(`/quiz/${quizId}/results`, { state: result });
       } catch (err) {
+        finishingRef.current = false;
         console.error(err);
         navigate("/quizzes");
       }
@@ -215,10 +231,12 @@ export default function QuestionScreen() {
     if (isLast) {
       try {
         if (!attemptId) throw new Error("Missing attempt id");
+        finishingRef.current = true;
         const summary = await QuizTaking.complete(attemptId);
         const result = completeQuiz(summary);
         navigate(`/quiz/${quizId}/results`, { state: result });
       } catch (e) {
+        finishingRef.current = false;
         console.error(e);
         navigate("/quizzes");
       }

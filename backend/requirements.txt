@@ -10,3 +10,5 @@ bcrypt==4.0.1
 python-multipart>=0.0.9
 Pillow>=10.3
 openpyxl>=3.1,<4
+# S3-compatible client for Cloudflare R2 free-tier media storage.
+aiobotocore>=3.2

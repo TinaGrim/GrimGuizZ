@@ -10,6 +10,7 @@ from ..config import media_url, settings
 from ..db import get_db
 from ..ratelimit import limit
 from ..schemas import now_iso, obj_id
+from .. import storage
 
 router = APIRouter(prefix="/api/teacher/assets", tags=["assets"])
 
@@ -20,9 +21,6 @@ router = APIRouter(prefix="/api/teacher/assets", tags=["assets"])
 )
 async def upload_asset(file: UploadFile = File(...), teacher_id: str = Depends(get_current_teacher)):
     db = get_db()
-
-    import os
-    import uuid
 
     is_image = file.content_type in settings.allowed_image_types
     is_video = file.content_type in settings.allowed_video_types
@@ -79,13 +77,10 @@ async def _store_image(db, file: UploadFile) -> dict:
 
     img = img.resize((target_w, target_h), Image.LANCZOS)
 
-    import os
     import uuid
-    os.makedirs(settings.upload_dir, exist_ok=True)
     ext_map = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
     ext = ext_map.get(file.content_type, "jpg")
     filename = f"{uuid.uuid4().hex}.{ext}"
-    path = os.path.join(settings.upload_dir, filename)
 
     save_kwargs = {}
     if ext == "webp":
@@ -95,9 +90,10 @@ async def _store_image(db, file: UploadFile) -> dict:
     else:
         save_kwargs = {"format": "JPEG", "quality": 85}
 
-    img.save(path, **save_kwargs)
-
+    out = BytesIO()
+    img.save(out, **save_kwargs)
     url = f"/uploads/{filename}"
+    await storage.save(url, out.getvalue(), file.content_type)
     asset_id = ObjectId()
     await db.assets.insert_one({
         "_id": asset_id,
@@ -140,18 +136,12 @@ async def _store_video(db, file: UploadFile) -> dict:
     ):
         raise HTTPException(status_code=400, detail="File is not a valid video.")
 
-    import os
     import uuid
-    os.makedirs(settings.upload_dir, exist_ok=True)
     ext_map = {"video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov"}
     ext = ext_map.get(file.content_type, "mp4")
     filename = f"{uuid.uuid4().hex}.{ext}"
-    path = os.path.join(settings.upload_dir, filename)
-
-    with open(path, "wb") as fh:
-        fh.write(data)
-
     url = f"/uploads/{filename}"
+    await storage.save(url, data, file.content_type)
     asset_id = ObjectId()
     await db.assets.insert_one({
         "_id": asset_id,
@@ -229,10 +219,6 @@ async def delete_asset(asset_id: str, teacher_id: str = Depends(get_current_teac
             detail=f"Cannot delete — this asset is used by {in_use} question(s). Remove it from those questions first.",
         )
 
-    import os
-    try:
-        os.remove(asset["url"].lstrip("/"))
-    except OSError:
-        pass
+    await storage.delete(asset["url"])
     await db.assets.delete_one({"_id": asset["_id"]})
     return {"ok": True}

@@ -62,6 +62,44 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("PUBLIC_BASE_URL", "QUIZZ_PUBLIC_BASE_URL"),
     )
+    # ─── Cloudflare R2 (S3-compatible) object storage ─────────────────
+    # Where uploaded images/videos live in prod. Render's free plan has
+    # an ephemeral filesystem (every redeploy wipes /app/uploads), so
+    # upload persistence goes through R2's free tier. When ALL of
+    # account/bucket/access-key/secret are set, uploads stream to R2 and
+    # are served from the bucket's public base URL (r2_public_base) via
+    # media_url(). Otherwise uploads stay on the local disk (dev mode,
+    # served by the Vite proxy through the `/uploads` mount).
+    r2_account_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("R2_ACCOUNT_ID", "QUIZZ_R2_ACCOUNT_ID"),
+    )
+    r2_bucket: str = Field(
+        default="",
+        validation_alias=AliasChoices("R2_BUCKET", "QUIZZ_R2_BUCKET"),
+    )
+    r2_access_key_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("R2_ACCESS_KEY_ID", "QUIZZ_R2_ACCESS_KEY_ID"),
+    )
+    r2_secret_access_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("R2_SECRET_ACCESS_KEY", "QUIZZ_R2_SECRET_ACCESS_KEY"),
+    )
+    # Public base URL for the bucket: `https://pub-<hash>.r2.dev` (public
+    # bucket) or a custom domain on R2. media_url() prefers this over
+    # public_base_url when set.
+    r2_public_base: str = Field(
+        default="",
+        validation_alias=AliasChoices("R2_PUBLIC_BASE_URL", "QUIZZ_R2_PUBLIC_BASE_URL"),
+    )
+    # Optional S3-compatible endpoint override. Only for tests against a
+    # local moto server — production R2 must leave this empty (the real
+    # endpoint is derived from r2_account_id).
+    s3_endpoint_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("S3_ENDPOINT_URL", "QUIZZ_S3_ENDPOINT_URL"),
+    )
     max_upload_bytes: int = 2 * 1024 * 1024  # 2MB
     max_video_upload_bytes: int = 20 * 1024 * 1024  # 20MB
     allowed_image_types: set[str] = {"image/png", "image/jpeg", "image/webp"}
@@ -115,18 +153,21 @@ class Settings(BaseSettings):
 def media_url(path: str | None) -> str | None:
     """Turn a stored `/uploads/...` path into a client-usable URL.
 
-    Passes absolute URLs through unchanged. When `public_base_url` is set
-    (prod), a relative stored path gets the backend origin prepended so
-    the Vercel frontend can actually fetch it (a relative `/uploads/x`
-    would be 404'd by the Vercel SPA rewrite). In dev (no base) the
-    relative path is kept, matching how the Vite proxy serves uploads.
+    Passes absolute URLs through unchanged. When `r2_public_base` is set
+    (R2 prod), a relative stored path gets the bucket's public origin
+    prepended, so the Vercel frontend can fetch it directly from
+    Cloudflare's edge (a relative `/uploads/x` would 404 on the Vercel
+    SPA rewrite). Falls back to `public_base_url` (Render-served mode),
+    then to the relative path in dev (matching how the Vite proxy serves
+    uploads).
     """
     if not path:
         return path
     if path.startswith("http://") or path.startswith("https://"):
         return path
-    if settings.public_base_url:
-        return settings.public_base_url.rstrip("/") + "/" + path.lstrip("/")
+    base = settings.r2_public_base or settings.public_base_url
+    if base:
+        return base.rstrip("/") + "/" + path.lstrip("/")
     return path
 
 

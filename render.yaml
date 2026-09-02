@@ -9,19 +9,12 @@ services:
     name: quizz-api
     runtime: docker
     rootDir: backend
-    plan: starter
+    # Free plan: no persistent disk, instance sleeps after inactivity.
+    # Uploaded media therefore lives in Cloudflare R2 (see R2_* below),
+    # not on the container filesystem, which is wiped on every redeploy.
+    plan: free
     healthCheckPath: /api/health
     autoDeploy: true
-    # Asset uploads live at /app/uploads (UPLOAD_DIR in the Dockerfile).
-    # The container filesystem is ephemeral — every redeploy resets it and
-    # wipes uploaded images/videos. Attach a persistent disk so teacher
-    # uploads survive deploys. If this service was created from a previous
-    # blueprint, click "Sync blueprint" OR add the disk manually in
-    # Settings → Persistent Disks, otherwise it won't be attached.
-    disk:
-      name: uploads
-      mountPath: /app/uploads
-      sizeGB: 1
     envVars:
       # ─── Required ───────────────────────────────────────────────────
       - key: MONGODB_URI
@@ -32,16 +25,22 @@ services:
         generateValue: true
       - key: CORS_ORIGINS
         sync: false
-      # The frontend (Vercel) is a different origin from the API (Render).
-      # Uploaded media is stored as `/uploads/...` and served by this
-      # backend, so the asset/library URLs the API returns must be
-      # absolute or they'd 404 on Vercel's SPA rewrite. Set to the
-      # deployed backend origin. `sync: true` so pushes to main re-apply
-      # it to the existing service (the rest are sync:false on purpose —
-      # they're managed from the dashboard).
-      - key: PUBLIC_BASE_URL
-        value: https://grimguizz.onrender.com
-        sync: true
+      # ─── Media storage (Cloudflare R2 free tier) ────────────────────
+      # The Render container filesystem is ephemeral, so uploads go to an
+      # R2 bucket and are served from R2_PUBLIC_BASE_URL (the bucket's
+      # public URL, e.g. https://pub-<hash>.r2.dev). Set these in the
+      # dashboard Environment for the existing service; they're sync:false
+      # on purpose so blueprint syncs never overwrite your keys.
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_PUBLIC_BASE_URL
+        sync: false
       # `QUIZZ_ENV=production` flips the dev-secret warning into a
       # hard startup error, so a misconfigured deploy can't run with
       # the publicly-known default secret.

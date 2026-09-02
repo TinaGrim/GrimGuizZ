@@ -70,21 +70,40 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 
 The output is your `JWT_SECRET`. **Never commit it.**
 
-### Persistent uploads
+### Media storage (Cloudflare R2, free tier)
 
-The starter plan resets the container's filesystem on redeploy — every
-deploy wipes teacher uploads (assets vanish and the library shows
-broken tiles until the asset rows are deleted). `render.yaml` already
-declares a 1 GB persistent disk mounted at `/app/uploads`:
-- If the service was created from that blueprint, click **Sync blueprint**
-  in the Render service so the disk attaches (or add it manually under
-  **Settings → Persistent Disks**: mount `/app/uploads`).
-- `UPLOAD_DIR=/app/uploads` is already baked into the Dockerfile and
-  env table; `PUBLIC_BASE_URL` must stay the deployed backend origin
-  so the Vercel frontend can load the media.
+The Render free/starter plans reset the container filesystem on every
+redeploy, so uploading to the local disk means assets vanish on each
+deploy (and the asset library shows broken tiles). For persistence the
+app streams uploads to a **Cloudflare R2** bucket (free tier: 10 GB
+storage, free egress) when the R2 env vars are set:
 
-For a fully managed setup, swap the upload handler for S3 — see
-`backend/app/routers/assets.py`.
+1. Cloudflare → **R2 Object Storage → Create bucket** (e.g.
+   `quizz-uploads`).
+2. **R2 → Manage R2 API Tokens → Create API token**; the generated
+   Access Key ID + Secret go into
+   `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`.
+3. Make the bucket public: user-level **Public Access → Allow access**,
+   note the bucket URL (`https://pub-<hash>.r2.dev`) → set as
+   `R2_PUBLIC_BASE_URL`. (A custom domain on Cloudflare also works.)
+4. Set all of these plus `R2_ACCOUNT_ID` and `R2_BUCKET` in the Render
+   service → **Environment**:
+
+   | Var | Value |
+   | --- | --- |
+   | `R2_ACCOUNT_ID` | Cloudflare account ID (from the dashboard URL) |
+   | `R2_BUCKET` | bucket name, e.g. `quizz-uploads` |
+   | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | R2 API token |
+   | `R2_PUBLIC_BASE_URL` | `https://pub-<hash>.r2.dev` |
+
+   When all five are set, uploads go straight to R2 and the API returns
+   R2 public URLs (`media_url()`), so the Vercel frontend loads them
+   from Cloudflare's edge — no Render dependency for media. Without the
+   vars, the app falls back to the local `uploads/` dir (dev mode).
+
+> The `PUBLIC_BASE_URL` var (Render-served media) is deprecated now that
+> R2 is the primary path; `media_url()` prefers `R2_PUBLIC_BASE_URL`
+> and falls back to `PUBLIC_BASE_URL` if only that one is set.
 
 ---
 

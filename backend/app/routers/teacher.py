@@ -408,10 +408,11 @@ async def _resolve_asset_reference(value: str | None, *, kind: str) -> str | Non
     """Normalise an image or troll-video reference to a `/uploads/...` URL.
 
     Accepts an ObjectId pointing to a record in the `assets` collection, a
-    `/uploads/...` URL, or — in prod — an absolute URL that resolves back to
-    this backend's `PUBLIC_BASE_URL` (the asset picker returns absolute URLs
-    when a base is configured so the Vercel frontend can load them). Absolute
-    URLs are stripped back to the relative `/uploads/...` path for storage so
+    `/uploads/...` URL, or — in prod — an absolute URL that resolves back
+    to this backend's configured media origin (`R2_PUBLIC_BASE_URL`, else
+    `PUBLIC_BASE_URL`; the asset picker returns absolute URLs when a base
+    is configured so the Vercel frontend can load them). Absolute URLs
+    are stripped back to the relative `/uploads/...` path for storage so
     file-system ops (delete) keep working. Anything else is rejected so a
     teacher can't embed a third-party tracking pixel, a `javascript:` URL,
     or a path-traversal string into a question. `None` (cleared) and empty
@@ -422,10 +423,12 @@ async def _resolve_asset_reference(value: str | None, *, kind: str) -> str | Non
     if value.startswith("/uploads/"):
         return value
     if value.startswith(("http://", "https://")):
-        base = settings.public_base_url
+        bases = {b for b in (settings.r2_public_base, settings.public_base_url) if b}
         try:
             parts = urlsplit(value)
-            if base and parts.netloc == urlsplit(base).netloc and parts.path.startswith("/uploads/"):
+            if parts.path.startswith("/uploads/") and any(
+                parts.netloc == urlsplit(base).netloc for base in bases
+            ):
                 return parts.path
         except Exception:
             pass
@@ -433,7 +436,7 @@ async def _resolve_asset_reference(value: str | None, *, kind: str) -> str | Non
             status_code=400,
             detail=(
                 f"{kind} must be an existing asset id or a "
-                f"{'/uploads/' if not settings.public_base_url else settings.public_base_url + '/uploads/'} URL"
+                f"{'/uploads/' if not bases else (next(iter(bases)) + '/uploads/')} URL"
             ),
         )
     try:

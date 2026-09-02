@@ -11,6 +11,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
+from bson import ObjectId
+
 # Public so client and tests can render the same labels.
 MASTERY_THRESHOLDS = {
     "strong": 0.85,
@@ -88,6 +90,33 @@ async def _completed_attempts(db, *, user_id: str | None = None, since_iso: str 
         query["completedAt"] = {"$gte": since_iso}
     cursor = db.attempts.find(query)
     return [a async for a in cursor]
+
+
+async def _fetch_by_ids(db, coll: str, ids) -> dict[str, dict]:
+    """Fetch docs by _id in ONE `$in` query instead of one find_one per id.
+
+    Returns a dict keyed by str(_id) with an extra "id" field (the string
+    form) copied onto every doc, mirroring what the old per-id helpers added
+    before they were replaced. Invalid/non-ObjectId strings are skipped.
+    """
+    if not ids:
+        return {}
+    oids: list[ObjectId] = []
+    for raw in ids:
+        i = (raw or "").strip()
+        if not i:
+            continue
+        try:
+            oids.append(ObjectId(i))
+        except Exception:
+            continue
+    if not oids:
+        return {}
+    out: dict[str, dict] = {}
+    async for d in db[coll].find({"_id": {"$in": oids}}):
+        d["id"] = str(d["_id"])
+        out[d["id"]] = d
+    return out
 
 
 def _attempt_percent(a: dict) -> float:
@@ -214,46 +243,18 @@ async def build_student_report(
 
     # 1) Per-lesson aggregation: resolve quiz -> lesson, group attempts by lesson.
     attempts = await _completed_attempts(db, user_id=student_id, since_iso=since_iso)
-    # Lookup helpers
-    quiz_cache: dict[str, dict] = {}
-    lesson_cache: dict[str, dict] = {}
-    chapter_cache: dict[str, dict] = {}
 
-    async def get_quiz(qid: str) -> dict | None:
-        if qid in quiz_cache:
-            return quiz_cache[qid]
-        try:
-            q = await db.quizzes.find_one({"_id": __import__("bson").ObjectId(qid)})
-        except Exception:
-            q = None
-        if q:
-            q["id"] = str(q["_id"])
-            quiz_cache[qid] = q
-        return q
-
-    async def get_lesson(lid: str) -> dict | None:
-        if lid in lesson_cache:
-            return lesson_cache[lid]
-        try:
-            l = await db.lessons.find_one({"_id": __import__("bson").ObjectId(lid)})
-        except Exception:
-            l = None
-        if l:
-            l["id"] = str(l["_id"])
-            lesson_cache[lid] = l
-        return l
-
-    async def get_chapter(cid: str) -> dict | None:
-        if cid in chapter_cache:
-            return chapter_cache[cid]
-        try:
-            c = await db.chapters.find_one({"_id": __import__("bson").ObjectId(cid)})
-        except Exception:
-            c = None
-        if c:
-            c["id"] = str(c["_id"])
-            chapter_cache[cid] = c
-        return c
+    # Preload the catalog in a handful of batched $in queries (a handful of
+    # round-trips instead of N sequential find_one calls). Then all lookups
+    # below are plain dict hits.
+    quiz_map = await _fetch_by_ids(db, "quizzes", {str(a.get("quizId") or "") for a in attempts})
+    lesson_map = await _fetch_by_ids(db, "lessons", {str(q.get("lessonId") or "") for q in quiz_map.values()})
+    chapter_map = await _fetch_by_ids(db, "chapters", {str(l.get("chapterId") or "") for l in lesson_map.values()})
+    question_map = await _fetch_by_ids(
+        db,
+        "questions",
+        {str(ans.get("questionId") or "") for a in attempts for ans in (a.get("answers") or [])},
+    )
 
     # Group attempts by lessonId, building chapter info per lesson.
     by_lesson: dict[str, list[dict]] = defaultdict(list)
@@ -271,13 +272,13 @@ async def build_student_report(
     )
 
     for a in attempts_sorted:
-        q = await get_quiz(a.get("quizId") or "")
+        q = quiz_map.get(a.get("quizId") or "")
         if not q:
             continue
-        lesson = await get_lesson(q.get("lessonId") or "")
+        lesson = lesson_map.get(q.get("lessonId") or "")
         if not lesson:
             continue
-        chapter = await get_chapter(lesson.get("chapterId") or "")
+        chapter = chapter_map.get(lesson.get("chapterId") or "")
         chapter_id = chapter["id"] if chapter else ""
         lesson_id = lesson["id"]
         by_lesson[lesson_id].append(a)
@@ -317,22 +318,20 @@ async def build_student_report(
         for ans in a.get("answers", []):
             ans2 = dict(ans)
             ans2["prompt"] = ""
-            # Try to attach the question prompt for the answer (used in pattern view).
-            try:
-                qdoc = await db.questions.find_one({"_id": __import__("bson").ObjectId(ans.get("questionId"))})
-                if qdoc:
-                    ans2["prompt"] = qdoc.get("prompt", "")
-            except Exception:
-                pass
+            # Attach the question prompt from the preloaded map (used by the
+            # wrong-answer pattern view) — no per-answer DB query.
+            qdoc = question_map.get(ans.get("questionId") or "")
+            if qdoc:
+                ans2["prompt"] = qdoc.get("prompt", "")
             answers_by_lesson[lesson_id].append(ans2)
 
     # 2) Per-lesson summaries
     per_lesson: list[dict] = []
     for lesson_id, l_attempts in by_lesson.items():
-        lesson = await get_lesson(lesson_id)
+        lesson = lesson_map.get(lesson_id)
         if not lesson:
             continue
-        chapter = await get_chapter(lesson.get("chapterId") or "")
+        chapter = chapter_map.get(lesson.get("chapterId") or "")
         agg = _aggregate_lesson(l_attempts)
         ftc = agg["firstTryCorrectRate"]
         # Latest-only percent: average each quiz's most recent (score, total)
@@ -474,9 +473,9 @@ async def build_student_report(
     recent: list[dict] = []
     sorted_attempts = sorted(attempts, key=lambda a: a.get("completedAt", ""), reverse=True)
     for a in sorted_attempts[:10]:
-        q = await get_quiz(a.get("quizId") or "")
-        lesson = await get_lesson(q.get("lessonId") or "") if q else None
-        chapter = await get_chapter(lesson.get("chapterId") or "") if lesson else None
+        q = quiz_map.get(a.get("quizId") or "")
+        lesson = lesson_map.get(q.get("lessonId") or "") if q else None
+        chapter = chapter_map.get(lesson.get("chapterId") or "") if lesson else None
         recent.append({
             "attemptId": str(a["_id"]),
             "quizId": a.get("quizId"),
@@ -539,6 +538,14 @@ async def build_class_report(db, period: str) -> dict:
 
     # Aggregated stats
     all_attempts = await _completed_attempts(db, since_iso=since_iso)
+
+    # Preload the whole catalog referenced by the period's attempts in a few
+    # batched $in queries (vs one find_one per attempt). Lookups below are
+    # synchronous dict hits.
+    quiz_map = await _fetch_by_ids(db, "quizzes", {str(a.get("quizId") or "") for a in all_attempts})
+    lesson_map = await _fetch_by_ids(db, "lessons", {str(q.get("lessonId") or "") for q in quiz_map.values()})
+    chapter_map = await _fetch_by_ids(db, "chapters", {str(l.get("chapterId") or "") for l in lesson_map.values()})
+
     sindex = {s["id"]: s for s in students}
     by_student: dict[str, list[dict]] = defaultdict(list)
     by_lesson: dict[str, list[dict]] = defaultdict(list)
@@ -547,15 +554,9 @@ async def build_class_report(db, period: str) -> dict:
     for a in all_attempts:
         uid = a.get("userId", "")
         by_student[uid].append(a)
-        try:
-            q = await db.quizzes.find_one({"_id": __import__("bson").ObjectId(a.get("quizId") or "")})
-        except Exception:
-            q = None
+        q = quiz_map.get(a.get("quizId") or "")
         if q:
-            try:
-                lesson = await db.lessons.find_one({"_id": __import__("bson").ObjectId(q.get("lessonId") or "")})
-            except Exception:
-                lesson = None
+            lesson = lesson_map.get(q.get("lessonId") or "")
             if lesson:
                 by_lesson[str(lesson["_id"])].append(a)
         ftc, ftcQ = _first_try_correct_count(a.get("answers", []))
@@ -563,38 +564,6 @@ async def build_class_report(db, period: str) -> dict:
         ftc_questions += ftcQ
 
     # Per-student rollup
-    quiz_by_id: dict[str, dict | None] = {}
-    lesson_by_id: dict[str, dict | None] = {}
-    chapter_by_id: dict[str, dict | None] = {}
-
-    async def _q(qid: str) -> dict | None:
-        if qid not in quiz_by_id:
-            try:
-                quiz_by_id[qid] = await db.quizzes.find_one({"_id": __import__("bson").ObjectId(qid)})
-            except Exception:
-                quiz_by_id[qid] = None
-        return quiz_by_id[qid]
-
-    async def _lesson(lid: str) -> dict | None:
-        if not lid:
-            return None
-        if lid not in lesson_by_id:
-            try:
-                lesson_by_id[lid] = await db.lessons.find_one({"_id": __import__("bson").ObjectId(lid)})
-            except Exception:
-                lesson_by_id[lid] = None
-        return lesson_by_id[lid]
-
-    async def _chapter(cid: str) -> dict | None:
-        if not cid:
-            return None
-        if cid not in chapter_by_id:
-            try:
-                chapter_by_id[cid] = await db.chapters.find_one({"_id": __import__("bson").ObjectId(cid)})
-            except Exception:
-                chapter_by_id[cid] = None
-        return chapter_by_id[cid]
-
     for sid, atts in by_student.items():
         if sid not in sindex:
             continue
@@ -617,9 +586,9 @@ async def build_class_report(db, period: str) -> dict:
         # Recent attempts (newest first) so the UI can inline-expand per-student detail.
         recent: list[dict] = []
         for a in sorted(atts, key=lambda x: x.get("completedAt", ""), reverse=True)[:5]:
-            q = await _q(a.get("quizId") or "")
-            lesson = await _lesson(q.get("lessonId") or "") if q else None
-            chapter = await _chapter(lesson.get("chapterId") or "") if lesson else None
+            q = quiz_map.get(a.get("quizId") or "")
+            lesson = lesson_map.get(q.get("lessonId") or "") if q else None
+            chapter = chapter_map.get(lesson.get("chapterId") or "") if lesson else None
             recent.append({
                 "attemptId": str(a["_id"]),
                 "quizId": a.get("quizId"),
@@ -642,24 +611,11 @@ async def build_class_report(db, period: str) -> dict:
 
     # Per-lesson difficulty ranking (worst first)
     per_lesson_difficulty: list[dict] = []
-    lesson_cache: dict[str, dict] = {}
     for lid, atts in by_lesson.items():
-        if lid in lesson_cache:
-            lesson = lesson_cache[lid]
-        else:
-            try:
-                lesson = await db.lessons.find_one({"_id": __import__("bson").ObjectId(lid)})
-            except Exception:
-                lesson = None
-            if lesson:
-                lesson["id"] = str(lesson["_id"])
-                lesson_cache[lid] = lesson
+        lesson = lesson_map.get(lid)
         if not lesson:
             continue
-        try:
-            chapter = await db.chapters.find_one({"_id": __import__("bson").ObjectId(lesson.get("chapterId") or "")})
-        except Exception:
-            chapter = None
+        chapter = chapter_map.get(lesson.get("chapterId") or "")
         agg = _aggregate_lesson(atts)
         per_lesson_difficulty.append({
             "lessonId": lid,

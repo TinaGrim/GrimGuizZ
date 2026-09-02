@@ -15,6 +15,21 @@ function apiUrl(path: string): string {
   return path.startsWith("http") ? path : `${base}/api${path}`;
 }
 
+// Best-effort wake-up for sleep-on-idle hosts (Render's free tier pauses the
+// instance after ~15 idle minutes). Fired the instant the SPA boots and while
+// the tab is visible so the first real request never pays for a cold start.
+// This is an unauthenticated GET with no custom headers → a "simple" request,
+// so it skips the CORS preflight that every authorized call pays.
+export function warmup(): void {
+  fetch(apiUrl("/health/cors"), {
+    method: "GET",
+    cache: "no-store",
+    referrerPolicy: "no-referrer",
+  }).catch(() => {
+    // Offline / host down — nothing meaningful to do; later requests handle it.
+  });
+}
+
 export interface Student {
   id: string;
   name: string;

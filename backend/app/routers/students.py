@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pymongo import ASCENDING, DESCENDING
 
 from ..auth import create_student_token, get_current_student
+from ..config import media_url
 from ..db import get_db
 from ..schemas import SemesterRange, StudentCreate, StudentEnterOut
 
@@ -229,8 +230,8 @@ async def get_active_attempt(
                 {
                     "questionId": sq.get("questionId"),
                     "prompt": sq.get("prompt"),
-                    "imageUrl": sq.get("imageUrl"),
-                    "trollVideoId": sq.get("trollVideoId"),
+                    "imageUrl": media_url(sq.get("imageUrl")),
+                    "trollVideoId": media_url(sq.get("trollVideoId")),
                     "timeLimitMinutes": sq.get("timeLimitMinutes"),
                     "options": sq.get("options"),
                     "order": sq.get("order", 0),

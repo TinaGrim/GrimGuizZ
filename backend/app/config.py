@@ -50,6 +50,18 @@ class Settings(BaseSettings):
         default="uploads",
         validation_alias=AliasChoices("UPLOAD_DIR", "QUIZZ_UPLOAD_DIR"),
     )
+    # Origin the frontend loads uploaded media through. In dev the Vite
+    # proxy forwards both `/api` and `/uploads` to the backend, so a
+    # relative URL is fine. In prod the frontend is on Vercel and the
+    # backend is on Render, so media URLs must be absolute — set this
+    # to the backend's public origin, e.g. `https://grimguizz.onrender.com`.
+    # Almost all HTTP clients fail to load `img src="/uploads/x.jpg"` as
+    # a Vercel-relative URL (it 404s on the SPA rewrite), which is why
+    # the hint exists.
+    public_base_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("PUBLIC_BASE_URL", "QUIZZ_PUBLIC_BASE_URL"),
+    )
     max_upload_bytes: int = 2 * 1024 * 1024  # 2MB
     max_video_upload_bytes: int = 20 * 1024 * 1024  # 20MB
     allowed_image_types: set[str] = {"image/png", "image/jpeg", "image/webp"}
@@ -98,6 +110,24 @@ class Settings(BaseSettings):
                 o = o[:-1]
             out.append(o)
         return out
+
+
+def media_url(path: str | None) -> str | None:
+    """Turn a stored `/uploads/...` path into a client-usable URL.
+
+    Passes absolute URLs through unchanged. When `public_base_url` is set
+    (prod), a relative stored path gets the backend origin prepended so
+    the Vercel frontend can actually fetch it (a relative `/uploads/x`
+    would be 404'd by the Vercel SPA rewrite). In dev (no base) the
+    relative path is kept, matching how the Vite proxy serves uploads.
+    """
+    if not path:
+        return path
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+    if settings.public_base_url:
+        return settings.public_base_url.rstrip("/") + "/" + path.lstrip("/")
+    return path
 
 
 settings = Settings()

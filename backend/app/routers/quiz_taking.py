@@ -4,6 +4,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import get_current_student
+from ..config import media_url
 from ..db import get_db
 from ..schemas import AnswerCreate, CreateAttempt, now_iso
 
@@ -37,7 +38,7 @@ def _served_view(q: dict) -> dict:
     return {
         "questionId": str(q["_id"]),
         "prompt": q["prompt"],
-        "imageUrl": q.get("imageUrl"),
+        "imageUrl": media_url(q.get("imageUrl")),
         "trollVideoId": q.get("trollVideoId"),
         "timeLimitMinutes": q.get("timeLimitMinutes"),
         "options": q["options"],
@@ -49,28 +50,36 @@ async def _resolve_troll_video(db, quiz: dict, question: dict | None) -> str | N
     """Resolve the troll video URL for a question.
 
     Precedence: the question's own troll video -> the quiz's troll video ->
-    a random video from the asset library. Returns the upload URL or None.
+    a random video from the asset library. Returns an absolute, client-usable
+    URL (or None). Stored references may be a relative `/uploads/...` path, an
+    absolute URL, or an asset id — all are normalized through `media_url`.
     """
     if question:
         qv = question.get("trollVideoId")
         if qv:
-            return qv if qv.startswith("/uploads/") else None
+            if qv.startswith("/uploads/"):
+                return media_url(qv)
+            if qv.startswith("http://") or qv.startswith("https://"):
+                return qv
+            return None
 
     if quiz:
         zv = quiz.get("trollVideoId")
         if zv:
             if zv.startswith("/uploads/"):
+                return media_url(zv)
+            if zv.startswith("http://") or zv.startswith("https://"):
                 return zv
             try:
                 asset = await db.assets.find_one({"_id": ObjectId(zv)})
             except Exception:
                 asset = None
             if asset:
-                return asset.get("url")
+                return media_url(asset.get("url"))
 
     videos = [a for a in await db.assets.find({"type": "video"}).to_list(None)]
     if videos:
-        return random.choice(videos).get("url")
+        return media_url(random.choice(videos).get("url"))
 
     return None
 
@@ -351,8 +360,8 @@ async def complete_attempt(
             {
                 "questionId": sq["questionId"],
                 "prompt": sq["prompt"],
-                "imageUrl": sq.get("imageUrl"),
-                "trollVideoId": sq.get("trollVideoId"),
+                "imageUrl": media_url(sq.get("imageUrl")),
+                "trollVideoId": media_url(sq.get("trollVideoId")),
                 "timeLimitMinutes": sq.get("timeLimitMinutes"),
                 "options": sq["options"],
                 "correctOptionIndex": q["correctOptionIndex"] if q else -1,

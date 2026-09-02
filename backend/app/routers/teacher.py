@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import re
+from urllib.parse import urlsplit
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,6 +11,7 @@ from ..auth import (
     hash_password,
     verify_password,
 )
+from ..config import media_url, settings
 from ..db import get_db
 from ..ratelimit import limit
 from ..schemas import (
@@ -327,6 +329,8 @@ async def list_quizzes(teacher_id: str = Depends(get_current_teacher)):
     db = get_db()
     out = []
     async for q in db.quizzes.find({"status": {"$ne": "archived"}}):
+        if q.get("trollVideoId"):
+            q["trollVideoId"] = media_url(q["trollVideoId"])
         q["id"] = str(q.pop("_id"))
         out.append(q)
     return out
@@ -346,6 +350,8 @@ async def create_quiz(payload: QuizCreate, teacher_id: str = Depends(get_current
     if lesson:
         await db.lessons.update_one({"_id": lesson["_id"]}, {"$push": {"quizIds": str(doc["_id"])}})
     doc["id"] = str(doc.pop("_id"))
+    if doc.get("trollVideoId"):
+        doc["trollVideoId"] = media_url(doc["trollVideoId"])
     return doc
 
 
@@ -364,6 +370,8 @@ async def update_quiz(quiz_id: str, payload: QuizUpdate, teacher_id: str = Depen
         await db.quizzes.update_one({"_id": existing["_id"]}, {"$set": updates})
     updated = await db.quizzes.find_one({"_id": existing["_id"]})
     updated["id"] = str(updated.pop("_id"))
+    if updated.get("trollVideoId"):
+        updated["trollVideoId"] = media_url(updated["trollVideoId"])
     return updated
 
 
@@ -387,6 +395,10 @@ async def list_questions(teacher_id: str = Depends(get_current_teacher)):
     db = get_db()
     out = []
     async for q in db.questions.find().sort("order", 1):
+        if q.get("imageUrl"):
+            q["imageUrl"] = media_url(q["imageUrl"])
+        if q.get("trollVideoId"):
+            q["trollVideoId"] = media_url(q["trollVideoId"])
         q["id"] = str(q.pop("_id"))
         out.append(q)
     return out
@@ -395,8 +407,12 @@ async def list_questions(teacher_id: str = Depends(get_current_teacher)):
 async def _resolve_asset_reference(value: str | None, *, kind: str) -> str | None:
     """Normalise an image or troll-video reference to a `/uploads/...` URL.
 
-    Accepts either an ObjectId pointing to a record in the `assets`
-    collection, or a `/uploads/...` URL. Anything else is rejected so a
+    Accepts an ObjectId pointing to a record in the `assets` collection, a
+    `/uploads/...` URL, or — in prod — an absolute URL that resolves back to
+    this backend's `PUBLIC_BASE_URL` (the asset picker returns absolute URLs
+    when a base is configured so the Vercel frontend can load them). Absolute
+    URLs are stripped back to the relative `/uploads/...` path for storage so
+    file-system ops (delete) keep working. Anything else is rejected so a
     teacher can't embed a third-party tracking pixel, a `javascript:` URL,
     or a path-traversal string into a question. `None` (cleared) and empty
     strings pass through.
@@ -405,6 +421,21 @@ async def _resolve_asset_reference(value: str | None, *, kind: str) -> str | Non
         return None
     if value.startswith("/uploads/"):
         return value
+    if value.startswith(("http://", "https://")):
+        base = settings.public_base_url
+        try:
+            parts = urlsplit(value)
+            if base and parts.netloc == urlsplit(base).netloc and parts.path.startswith("/uploads/"):
+                return parts.path
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{kind} must be an existing asset id or a "
+                f"{'/uploads/' if not settings.public_base_url else settings.public_base_url + '/uploads/'} URL"
+            ),
+        )
     try:
         asset = await get_db().assets.find_one({"_id": ObjectId(value)})
     except Exception:
@@ -437,6 +468,10 @@ async def create_question(payload: QuestionCreate, teacher_id: str = Depends(get
     # attach to quiz pool
     await db.quizzes.update_one({"_id": ObjectId(payload.quizId)}, {"$push": {"questionPoolIds": str(doc["_id"])}})
     doc["id"] = str(doc.pop("_id"))
+    if doc.get("imageUrl"):
+        doc["imageUrl"] = media_url(doc["imageUrl"])
+    if doc.get("trollVideoId"):
+        doc["trollVideoId"] = media_url(doc["trollVideoId"])
     return doc
 
 
@@ -462,6 +497,10 @@ async def update_question(question_id: str, payload: QuestionUpdate, teacher_id:
         await db.questions.update_one({"_id": existing["_id"]}, {"$set": updates})
     updated = await db.questions.find_one({"_id": existing["_id"]})
     updated["id"] = str(updated.pop("_id"))
+    if updated.get("imageUrl"):
+        updated["imageUrl"] = media_url(updated["imageUrl"])
+    if updated.get("trollVideoId"):
+        updated["trollVideoId"] = media_url(updated["trollVideoId"])
     return updated
 
 
@@ -2003,7 +2042,7 @@ async def student_attempt_detail(
         breakdown.append({
             "questionId": sq["questionId"],
             "prompt": sq.get("prompt"),
-            "imageUrl": sq.get("imageUrl"),
+            "imageUrl": media_url(sq.get("imageUrl")),
             "options": sq.get("options", []),
             "correctOptionIndex": q["correctOptionIndex"] if q else -1,
             "chosenOptionIndex": ans.get("chosenOptionIndex") if ans else None,

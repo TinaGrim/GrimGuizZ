@@ -251,20 +251,6 @@ export default function StudentLanding() {
                 {!loading && <ArrowRight size={18} />}
               </button>
             </form>
-
-            <div
-              className="mt-8 p-4 text-sm"
-              style={{
-                background: "var(--color-cream-dark)",
-                border: "1px solid var(--color-cream-dark)",
-                borderLeft: "3px solid var(--color-amber)",
-                fontFamily: "var(--font-body)",
-                color: "var(--color-ink-muted)",
-              }}
-            >
-              <strong style={{ color: "var(--color-ink)" }}>Demo names:</strong>{" "}
-              Jamie Chen · Alex Rivera · Sam Okafor · Priya Nair · Marcus Webb
-            </div>
           </div>
         </div>
       </div>

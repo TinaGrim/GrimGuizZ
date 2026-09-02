@@ -6,7 +6,7 @@ from PIL import Image, ImageOps
 from pymongo import DESCENDING
 
 from ..auth import get_current_teacher
-from ..config import settings
+from ..config import media_url, settings
 from ..db import get_db
 from ..ratelimit import limit
 from ..schemas import now_iso, obj_id
@@ -110,7 +110,7 @@ async def _store_image(db, file: UploadFile) -> dict:
     return {
         "id": str(asset_id),
         "type": "image",
-        "url": url,
+        "url": media_url(url),
         "usedIn": [],
         "uploadedAt": now_iso(),
     }
@@ -164,7 +164,7 @@ async def _store_video(db, file: UploadFile) -> dict:
     return {
         "id": str(asset_id),
         "type": "video",
-        "url": url,
+        "url": media_url(url),
         "usedIn": [],
         "uploadedAt": now_iso(),
     }
@@ -175,21 +175,30 @@ async def list_assets(teacher_id: str = Depends(get_current_teacher)):
     db = get_db()
     out = []
     async for a in db.assets.find().sort("uploadedAt", DESCENDING):
-        # compute usage: which questions use this asset (as image or as troll video)
+        # compute usage: which questions use this asset (as image or as troll
+        # video). Questions store whatever the picker returned — relative
+        # /uploads/... paths in dev, absolute PUBLIC_BASE_URL URLs in prod —
+        # while the asset row keeps the relative path, so match both variants.
         u = a.pop("_id")
+        rel = a["url"]
+        variants = list({rel, media_url(rel)} - {None, ""})
+        a["url"] = media_url(rel)
         used_in = []
-        async for q in db.questions.find(
-            {"$or": [{"imageUrl": a["url"]}, {"trollVideoId": a["url"]}]}
-        ):
-            used_in.append(
-                {
-                    "questionId": str(q["_id"]),
-                    "prompt": q.get("prompt", ""),
-                    "role": (
-                        "image" if q.get("imageUrl") == a["url"] else "troll video"
-                    ),
-                }
-            )
+        if variants:
+            qfilter = {"$or": []}
+            for v in variants:
+                qfilter["$or"].append({"imageUrl": v})
+                qfilter["$or"].append({"trollVideoId": v})
+            async for q in db.questions.find(qfilter):
+                used_in.append(
+                    {
+                        "questionId": str(q["_id"]),
+                        "prompt": q.get("prompt", ""),
+                        "role": (
+                            "image" if q.get("imageUrl") in variants else "troll video"
+                        ),
+                    }
+                )
         a["usedIn"] = used_in
         a["id"] = str(u)
         out.append(a)
@@ -204,9 +213,16 @@ async def delete_asset(asset_id: str, teacher_id: str = Depends(get_current_teac
         raise HTTPException(status_code=404, detail="Asset not found")
 
     # Warn before deleting in-use asset (used as a question image or troll video).
-    in_use = await db.questions.count_documents(
-        {"$or": [{"imageUrl": asset.get("url")}, {"trollVideoId": asset.get("url")}]}
-    )
+    # Questions hold whatever the picker returned — relative /uploads/... paths
+    # in dev, absolute PUBLIC_BASE_URL URLs in prod — while the asset row keeps
+    # the relative path, so normalize both sides and match either variant.
+    rel = asset.get("url") or ""
+    variants = list({rel, media_url(rel)} - {None, ""})
+    qfilter = {"$or": []}
+    for v in variants:
+        qfilter["$or"].append({"imageUrl": v})
+        qfilter["$or"].append({"trollVideoId": v})
+    in_use = await db.questions.count_documents(qfilter) if variants else 0
     if in_use > 0:
         raise HTTPException(
             status_code=409,

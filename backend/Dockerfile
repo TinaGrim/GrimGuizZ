@@ -36,6 +36,11 @@ ENV UPLOAD_DIR=/app/uploads
 # Non-root. The numeric UID matches Render's default; the unprivileged
 # user is required for any service that runs as `web`.
 RUN useradd --create-home --uid 10001 --shell /bin/bash app
+# /app/uploads is created by root (RUN above runs as root) but the
+# container later switches to `app` — without a chown, directory writes
+# (asset uploads) fail with PermissionError → HTTP 500 with no CORS
+# headers, which the browser reports as "CORS header missing".
+RUN chown -R app:app /app/uploads
 USER app
 
 EXPOSE 8000

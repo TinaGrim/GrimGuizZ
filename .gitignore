@@ -30,6 +30,7 @@ plan.md
 quizz-excel-export-addendum.md
 *.docx
 .opencode/
+.vercelignore
 
 # Platform-managed agentplat state, not project source. In the
 # client-initiated single-repo workspace layout (make's `Path: "."` spec) the
@@ -37,3 +38,4 @@ quizz-excel-export-addendum.md
 # beside it.
 /.plugins/
 /.opencode-skills/
+.vercel

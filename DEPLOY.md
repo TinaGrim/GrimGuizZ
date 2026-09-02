@@ -104,6 +104,54 @@ For a fully managed setup, swap the upload handler for S3 — see
 direct links like `https://quizz.vercel.app/admin/panel/security`
 work without 404'ing.
 
+### CORS — most common prod bug
+
+The browser blocks every API call with **"Disallowed CORS origin"**
+when `CORS_ORIGINS` on Render does not contain the Vercel origin.
+This is the single most common prod deploy bug. Two ways to fix:
+
+1. **Set the env var** on Render to the exact Vercel URL:
+   ```
+   CORS_ORIGINS = https://quizz-quick.vercel.app
+   ```
+   (no trailing slash, no path; the value must match what the
+   browser sends in the `Origin` header byte-for-byte). For
+   preview deploys on Vercel, you can also add
+   `https://*-<team-slug>.vercel.app` but the Starlette CORS
+   middleware does not support globs — list each preview origin
+   explicitly, or use one Vercel "production" deployment URL.
+
+2. **Diagnose without redeploying.** Hit
+   `https://<render-url>/api/health/cors` — it returns the live
+   config as JSON:
+   ```json
+   {
+     "cors_origins": ["http://localhost:8443"],
+     "env": "production",
+     "hint": "If your frontend is being blocked..."
+   }
+   ```
+   If the array doesn't contain your Vercel URL, the env var
+   wasn't set or wasn't parsed.
+
+3. **Quick check via curl** (no browser needed):
+   ```bash
+   curl -i -X OPTIONS https://<render-url>/api/students/enter \
+     -H "Origin: https://quizz-quick.vercel.app" \
+     -H "Access-Control-Request-Method: POST" \
+     -H "Access-Control-Request-Headers: content-type"
+   ```
+   Look for `HTTP/2 200` and `access-control-allow-origin:
+   https://quizz-quick.vercel.app`. A `400 Disallowed CORS
+   origin` means Render's allow list still doesn't include your
+   Vercel URL.
+
+The backend logs a warning at startup if `CORS_ORIGINS` is still
+the dev defaults (`http://localhost:8443`, `http://127.0.0.1:8443`)
+while `QUIZZ_ENV=production`. Check Render's log feed for the line
+`CORS_ORIGINS is still the dev defaults ...` to catch this before
+any browser ever does.
+
 ---
 
 ## 4. After deploy — smoke test

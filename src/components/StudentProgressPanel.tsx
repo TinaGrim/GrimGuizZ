@@ -24,6 +24,13 @@ interface Props {
   range: "week" | "month" | "year";
 }
 
+// Module-level stale-while-revalidate cache: keeps the last fetched report
+// per (student, range) so remounting the panel (returning to /quizzes,
+// re-focusing the tab, finishing a quiz) paints instantly with the previous
+// numbers while a background fetch revalidates. Cached values never go
+// stale enough to matter — they're always refreshed on mount/tab-visible.
+const reportCache = new Map<string, { report: StudentReport }>();
+
 export default function StudentProgressPanel({
   studentId,
   range,
@@ -36,15 +43,34 @@ export default function StudentProgressPanel({
   });
   const [openAttempt, setOpenAttempt] = useState<string | null>(null);
 
-  const fetchReport = () => {
-    setData((d) => ({ ...d, loading: true }));
+  const fetchReport = (showLoading = true) => {
+    const key = `${studentId}:${range}`;
+    const cached = reportCache.get(key);
+    // Stale-while-revalidate: if we already have numbers for this panel,
+    // render them immediately and skip the "Loading your scores…" gate.
+    // Subsequent refreshes (tab re-focus, return to /quizzes) also skip the
+    // loading flash instead of blanking the panel.
+    if (cached) {
+      setData({ report: cached.report, loading: false, error: null });
+    } else if (showLoading) {
+      setData((d) => ({ ...d, loading: true }));
+    }
     // Cache-bust so the dev server / browser doesn't serve a stale report
     // when the student returns to /quizzes right after completing a quiz.
     Students.report(studentId, range)
-      .then((r) => setData({ report: r, loading: false, error: null }))
-      .catch((e) =>
-        setData({ report: null, loading: false, error: (e as Error).message }),
-      );
+      .then((r) => {
+        reportCache.set(key, { report: r });
+        setData({ report: r, loading: false, error: null });
+      })
+      .catch((e) => {
+        if (cached) {
+          // Refresh failed but we have a previous snapshot — keep showing it
+          // rather than replacing the panel with an error banner.
+          setData({ report: cached.report, loading: false, error: null });
+        } else {
+          setData({ report: null, loading: false, error: (e as Error).message });
+        }
+      });
   };
 
   useEffect(() => {

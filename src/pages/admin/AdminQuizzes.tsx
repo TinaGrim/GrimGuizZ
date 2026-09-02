@@ -1188,7 +1188,7 @@ const renderStatusBlock = (
   // ─── JSX ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="px-8 py-8 max-w-5xl">
+    <div className="px-3 sm:px-6 md:px-8 py-4 sm:py-6 md:py-8 max-w-5xl">
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1

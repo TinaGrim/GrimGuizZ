@@ -82,7 +82,7 @@ export default function AdminSecurity() {
   }, [teacherName]);
 
   return (
-    <div className="px-10 py-8 max-w-3xl">
+    <div className="px-3 sm:px-6 md:px-10 py-4 sm:py-6 md:py-8 max-w-3xl">
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-1">
           <Shield size={22} color="var(--color-ember)" />

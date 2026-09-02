@@ -72,11 +72,17 @@ The output is your `JWT_SECRET`. **Never commit it.**
 
 ### Persistent uploads
 
-The starter plan resets the container's filesystem on redeploy. Demo
-quizzes ship with a pre-seeded set of media, so the app is usable out
-of the box. If teachers upload new images/videos in prod and expect
-them to survive a deploy, mount a Render Persistent Disk at
-`/app/uploads` (and set `UPLOAD_DIR=/app/uploads` in the env table).
+The starter plan resets the container's filesystem on redeploy — every
+deploy wipes teacher uploads (assets vanish and the library shows
+broken tiles until the asset rows are deleted). `render.yaml` already
+declares a 1 GB persistent disk mounted at `/app/uploads`:
+- If the service was created from that blueprint, click **Sync blueprint**
+  in the Render service so the disk attaches (or add it manually under
+  **Settings → Persistent Disks**: mount `/app/uploads`).
+- `UPLOAD_DIR=/app/uploads` is already baked into the Dockerfile and
+  env table; `PUBLIC_BASE_URL` must stay the deployed backend origin
+  so the Vercel frontend can load the media.
+
 For a fully managed setup, swap the upload handler for S3 — see
 `backend/app/routers/assets.py`.
 

@@ -12,6 +12,16 @@ services:
     plan: starter
     healthCheckPath: /api/health
     autoDeploy: true
+    # Asset uploads live at /app/uploads (UPLOAD_DIR in the Dockerfile).
+    # The container filesystem is ephemeral — every redeploy resets it and
+    # wipes uploaded images/videos. Attach a persistent disk so teacher
+    # uploads survive deploys. If this service was created from a previous
+    # blueprint, click "Sync blueprint" OR add the disk manually in
+    # Settings → Persistent Disks, otherwise it won't be attached.
+    disk:
+      name: uploads
+      mountPath: /app/uploads
+      sizeGB: 1
     envVars:
       # ─── Required ───────────────────────────────────────────────────
       - key: MONGODB_URI

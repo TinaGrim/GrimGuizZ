@@ -3,6 +3,7 @@ import { useApp } from "../../store/AppContext";
 import { Teacher, type Asset } from "../../api/client";
 import { useConfirm } from "../../components/ConfirmDialog";
 import { AssetLibraryModal } from "../../components/AssetLibraryModal";
+import UploadProgress from "../../components/UploadProgress";
 import MathText from "../../components/MathText";
 import {
   Plus,
@@ -209,6 +210,8 @@ const [qTimeLimit, setQTimeLimit] = useState("");
   const [qImageUrl, setQImageUrl] = useState("");
   const [qTrollVideoId, setQTrollVideoId] = useState("");
   const [qUploading, setQUploading] = useState<"image" | "video" | null>(null);
+  const [qImageProgress, setQImageProgress] = useState(0);
+  const [qVideoProgress, setQVideoProgress] = useState(0);
   const [qError, setQError] = useState("");
 
   // Question-add overlay (Edit Quiz form)
@@ -223,6 +226,8 @@ const [qTimeLimit, setQTimeLimit] = useState("");
   const [eQImageUrl, setEQImageUrl] = useState("");
   const [eQTrollVideoId, setEQTrollVideoId] = useState("");
   const [eQUploading, setEQUploading] = useState<"image" | "video" | null>(null);
+  const [eQImageProgress, setEQImageProgress] = useState(0);
+  const [eQVideoProgress, setEQVideoProgress] = useState(0);
   const [eQError, setEQError] = useState("");
 
   // Asset library (for "From library" picking) — shared by both overlays.
@@ -561,9 +566,10 @@ const [qTimeLimit, setQTimeLimit] = useState("");
 
   const handleQImageUpload = async (file: File) => {
     setQUploading("image");
+    setQImageProgress(0);
     setQError("");
     try {
-      const asset = await Teacher.uploadAsset(file);
+      const asset = await Teacher.uploadAsset(file, setQImageProgress);
       setQImageUrl(asset.url);
     } catch (e) {
       setQError((e as Error).message);
@@ -574,9 +580,10 @@ const [qTimeLimit, setQTimeLimit] = useState("");
 
   const handleQVideoUpload = async (file: File) => {
     setQUploading("video");
+    setQVideoProgress(0);
     setQError("");
     try {
-      const asset = await Teacher.uploadAsset(file);
+      const asset = await Teacher.uploadAsset(file, setQVideoProgress);
       setQTrollVideoId(asset.url);
     } catch (e) {
       setQError((e as Error).message);
@@ -587,9 +594,10 @@ const [qTimeLimit, setQTimeLimit] = useState("");
 
   const handleEQImageUpload = async (file: File) => {
     setEQUploading("image");
+    setEQImageProgress(0);
     setEQError("");
     try {
-      const asset = await Teacher.uploadAsset(file);
+      const asset = await Teacher.uploadAsset(file, setEQImageProgress);
       setEQImageUrl(asset.url);
     } catch (e) {
       setEQError((e as Error).message);
@@ -600,9 +608,10 @@ const [qTimeLimit, setQTimeLimit] = useState("");
 
   const handleEQVideoUpload = async (file: File) => {
     setEQUploading("video");
+    setEQVideoProgress(0);
     setEQError("");
     try {
-      const asset = await Teacher.uploadAsset(file);
+      const asset = await Teacher.uploadAsset(file, setEQVideoProgress);
       setEQTrollVideoId(asset.url);
     } catch (e) {
       setEQError((e as Error).message);
@@ -2182,6 +2191,9 @@ const renderStatusBlock = (
                   </button>
                 )}
               </div>
+              {qUploading === "image" && (
+                <UploadProgress percent={qImageProgress} label="Uploading image…" />
+              )}
               {qImageUrl && (
                 <div
                   style={{
@@ -2283,6 +2295,9 @@ const renderStatusBlock = (
                   </button>
                 )}
               </div>
+              {qUploading === "video" && (
+                <UploadProgress percent={qVideoProgress} label="Uploading video…" />
+              )}
               {qTrollVideoId && (
                 <video
                   src={qTrollVideoId}
@@ -2597,6 +2612,9 @@ const renderStatusBlock = (
                   </button>
                 )}
               </div>
+              {eQUploading === "image" && (
+                <UploadProgress percent={eQImageProgress} label="Uploading image…" />
+              )}
               {eQImageUrl && (
                 <div
                   style={{
@@ -2698,6 +2716,9 @@ const renderStatusBlock = (
                   </button>
                 )}
               </div>
+              {eQUploading === "video" && (
+                <UploadProgress percent={eQVideoProgress} label="Uploading video…" />
+              )}
               {eQTrollVideoId && (
                 <video
                   src={eQTrollVideoId}

@@ -3,6 +3,7 @@ import { useApp } from "../../store/AppContext";
 import { Teacher, type Asset } from "../../api/client";
 import { useConfirm } from "../../components/ConfirmDialog";
 import { AssetLibraryModal } from "../../components/AssetLibraryModal";
+import UploadProgress from "../../components/UploadProgress";
 import MathText from "../../components/MathText";
 import {
   Plus,
@@ -71,7 +72,9 @@ export default function AdminQuestions() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [imageProgress, setImageProgress] = useState(0);
   const [videoUploading, setVideoUploading] = useState(false);
+  const [videoProgress, setVideoProgress] = useState(0);
   const [imageAssets, setImageAssets] = useState<Asset[]>([]);
   const [videoAssets, setVideoAssets] = useState<Asset[]>([]);
   const [showImageLibrary, setShowImageLibrary] = useState(false);
@@ -136,9 +139,10 @@ export default function AdminQuestions() {
 
   const handleFile = async (file: File) => {
     setUploading(true);
+    setImageProgress(0);
     setError("");
     try {
-      const asset = await Teacher.uploadAsset(file);
+      const asset = await Teacher.uploadAsset(file, setImageProgress);
       setForm((f) => ({ ...f, imageUrl: asset.url }));
     } catch (e) {
       setError((e as Error).message);
@@ -149,9 +153,10 @@ export default function AdminQuestions() {
 
   const handleVideoFile = async (file: File) => {
     setVideoUploading(true);
+    setVideoProgress(0);
     setError("");
     try {
-      const asset = await Teacher.uploadAsset(file);
+      const asset = await Teacher.uploadAsset(file, setVideoProgress);
       setForm((f) => ({ ...f, trollVideoId: asset.url }));
       // Keep the dropdown in sync so the freshly-uploaded video is selectable
       // (and, if it was a replace, does not show a stale duplicate).
@@ -484,6 +489,7 @@ export default function AdminQuestions() {
                   </button>
                 )}
               </div>
+              {uploading && <UploadProgress percent={imageProgress} label="Uploading image…" />}
               {form.imageUrl && (
                 <div
                   style={{
@@ -604,6 +610,7 @@ export default function AdminQuestions() {
                   </button>
                 )}
               </div>
+              {videoUploading && <UploadProgress percent={videoProgress} label="Uploading video…" />}
               {form.trollVideoId && (
                 <video
                   src={form.trollVideoId}
@@ -1217,8 +1224,9 @@ export default function AdminQuestions() {
                               const f = e.target.files?.[0];
                               if (!f) return;
                               setUploading(true);
+                              setImageProgress(0);
                               setError("");
-                              Teacher.uploadAsset(f)
+                              Teacher.uploadAsset(f, setImageProgress)
                                 .then((asset) => {
                                   setEditState((s) => (s ? { ...s, imageUrl: asset.url } : s));
                                 })
@@ -1267,6 +1275,9 @@ export default function AdminQuestions() {
                           </button>
                         )}
                       </div>
+                      {uploading && (
+                        <UploadProgress percent={imageProgress} label="Uploading image…" />
+                      )}
                       {editState.imageUrl && (
                         <div
                           style={{
@@ -1347,8 +1358,9 @@ export default function AdminQuestions() {
                               const f = e.target.files?.[0];
                               if (!f) return;
                               setVideoUploading(true);
+                              setVideoProgress(0);
                               setError("");
-                              Teacher.uploadAsset(f)
+                              Teacher.uploadAsset(f, setVideoProgress)
                                 .then((asset) => {
                                   setEditState((s) =>
                                     s ? { ...s, trollVideoId: asset.url } : s,
@@ -1405,6 +1417,9 @@ export default function AdminQuestions() {
                           </button>
                         )}
                       </div>
+                      {videoUploading && (
+                        <UploadProgress percent={videoProgress} label="Uploading video…" />
+                      )}
                       {editState.trollVideoId && (
                         <video
                           src={editState.trollVideoId}

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Teacher, type Asset } from "../../api/client";
 import { useApp } from "../../store/AppContext";
 import { useConfirm } from "../../components/ConfirmDialog";
+import UploadProgress from "../../components/UploadProgress";
 import { Trash2, Upload, ImageIcon, Video, AlertCircle } from "lucide-react";
 
 export default function AdminAssets() {
@@ -9,6 +10,8 @@ export default function AdminAssets() {
   const { confirm } = useConfirm();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [uploadName, setUploadName] = useState("");
   const [error, setError] = useState("");
 
   const refresh = async () => {
@@ -25,9 +28,11 @@ export default function AdminAssets() {
 
   const handleUpload = async (file: File) => {
     setUploading(true);
+    setProgress(0);
+    setUploadName(file.name);
     setError("");
     try {
-      await Teacher.uploadAsset(file);
+      await Teacher.uploadAsset(file, setProgress);
       await refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -102,6 +107,12 @@ export default function AdminAssets() {
           />
         </label>
       </div>
+
+      {uploading && (
+        <div className="mb-4 max-w-sm">
+          <UploadProgress percent={progress} label={`Uploading ${uploadName}…`} />
+        </div>
+      )}
 
       {error && (
         <div

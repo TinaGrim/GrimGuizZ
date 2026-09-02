@@ -43,8 +43,17 @@ export default function QuestionScreen() {
   const [timeUp, setTimeUp] = useState(false);
   const timedUpRef = useRef(false);
   const [submitted, setSubmitted] = useState(false);
+  // True while the server is grading the answer. Drives an immediate
+  // "Checking…" pill so the click is never followed by dead air while the
+  // round-trip lands. (Previous behaviour: button hid but nothing else
+  // moved until the response came back — felt broken on slow links.)
+  const [checking, setChecking] = useState(false);
   const [shakeKey, setShakeKey] = useState(0);
   const [advancing, setAdvancing] = useState(false);
+  // User can tap to advance as soon as the verdict lands. We auto-advance
+  // after a short pause so the snack is readable but the quiz still feels
+  // snappy.
+  const [showNext, setShowNext] = useState(false);
   // Set when we're tearing down the quiz (completing the attempt + heading
   // to results). The completion flow clears `questionsServed` *before* the
   // (transition-priority) results navigation commits, so in between React
@@ -69,6 +78,9 @@ export default function QuestionScreen() {
   questionsServedRef.current = questionsServed;
   const completeQuizRef = useRef(completeQuiz);
   completeQuizRef.current = completeQuiz;
+  // Timers that drive the post-correct auto-advance; stashed so an early
+  // tap on "Next" can cancel them.
+  const advanceTimersRef = useRef<{ nextTimer?: ReturnType<typeof setTimeout>; advanceTimer?: ReturnType<typeof setTimeout> }>({});
 
   const question: QuestionServed | undefined = questionsServed[currentQuestionIndex];
 
@@ -122,7 +134,14 @@ export default function QuestionScreen() {
     optionStatesRef.current = fresh;
     setFeedback(null);
     setSubmitted(false);
+    setChecking(false);
+    setShowNext(false);
     setAdvancing(false);
+    // Drop any pending post-correct advance timers from the previous
+    // question (they would otherwise fire against the next question).
+    if (advanceTimersRef.current.nextTimer) clearTimeout(advanceTimersRef.current.nextTimer);
+    if (advanceTimersRef.current.advanceTimer) clearTimeout(advanceTimersRef.current.advanceTimer);
+    advanceTimersRef.current = {};
     setShowTroll(false);
     setTrollVideoUrl(null);
     setTimeUp(false);
@@ -175,9 +194,38 @@ export default function QuestionScreen() {
     return () => clearInterval(id);
   }, [timeLimitSeconds, timeUp, submitted]);
 
+  const advance = useCallback(async () => {
+    if (advancing) return;
+    setAdvancing(true);
+    const isLast = currentQuestionIndex >= questionsServed.length - 1;
+    if (isLast) {
+      finishingRef.current = true;
+      // Optimistic: show results the moment the last question resolves, then
+      // set the canonical attempt summary + refresh the quiz list when the
+      // server confirms. `completeQuiz` (context) clears the session.
+      navigate(`/quiz/${quizId}/results`, { state: optimisticResult() });
+      if (attemptId) syncComplete(attemptId);
+    } else {
+      advanceQuestion();
+    }
+  }, [
+    advancing,
+    currentQuestionIndex,
+    questionsServed.length,
+    completeQuiz,
+    navigate,
+    quizId,
+    advanceQuestion,
+    attemptId,
+  ]);
+
   const handleSubmit = useCallback(async () => {
     if (selectedIndexRef.current === null || submitted || !question) return;
     setSubmitted(true);
+    // Instant acknowledgement — show a "Checking…" pill so the user never
+    // sees a gap between click and verdict, even on slow networks.
+    setChecking(true);
+    setShowNext(false);
 
     // Phase A instrumentation: per-question choice history + time-on-question.
     const pickedIndex = selectedIndexRef.current;
@@ -194,6 +242,8 @@ export default function QuestionScreen() {
         choicesRef.current,
         elapsedMs / 1000,
       );
+    // Verdict has landed — drop the "Checking…" pill.
+    setChecking(false);
 
     // The attempt is already finished server-side (another tab completed it,
     // or we re-entered this screen after finishing). End the quiz with the
@@ -222,7 +272,13 @@ export default function QuestionScreen() {
       optionStatesRef.current = newStates;
       setOptionStates(newStates);
       setFeedback({ type: "correct", message: "That's the one!" });
-      setTimeout(() => advance(), 1200);
+      // Let the user read the verdict, but don't make them wait the full
+      // pause: the "Next" button appears in 400ms and the auto-advance
+      // happens at 600ms. Previously the user was stuck for 1200ms.
+      const nextTimer = setTimeout(() => setShowNext(true), 400);
+      const advanceTimer = setTimeout(() => advance(), 600);
+      // Stash the timers so a tap on "Next" can cancel the auto-advance.
+      advanceTimersRef.current = { nextTimer, advanceTimer };
     } else {
       // Mark the chosen option wrong and keep it highlighted + disabled.
       // selectedOption stays set so the user sees which one they got wrong.
@@ -254,37 +310,22 @@ export default function QuestionScreen() {
     quizId,
     completeQuiz,
     navigate,
-  ]);
-
-  const advance = useCallback(async () => {
-    if (advancing) return;
-    setAdvancing(true);
-    const isLast = currentQuestionIndex >= questionsServed.length - 1;
-    if (isLast) {
-      finishingRef.current = true;
-      // Optimistic: show results the moment the last question resolves, then
-      // set the canonical attempt summary + refresh the quiz list when the
-      // server confirms. `completeQuiz` (context) clears the session.
-      navigate(`/quiz/${quizId}/results`, { state: optimisticResult() });
-      if (attemptId) syncComplete(attemptId);
-    } else {
-      advanceQuestion();
-    }
-  }, [
-    advancing,
-    currentQuestionIndex,
-    questionsServed.length,
-    completeQuiz,
-    navigate,
-    quizId,
-    advanceQuestion,
-    attemptId,
+    advance,
   ]);
 
   const handleTrollClose = () => {
     setShowTroll(false);
     setTimeout(() => advance(), 600);
   };
+
+  // User taps "Next" instead of waiting for the auto-advance timer.
+  const handleNext = useCallback(() => {
+    if (advanceTimersRef.current.nextTimer) clearTimeout(advanceTimersRef.current.nextTimer);
+    if (advanceTimersRef.current.advanceTimer) clearTimeout(advanceTimersRef.current.advanceTimer);
+    advanceTimersRef.current = {};
+    setShowNext(false);
+    advance();
+  }, [advance]);
 
   // Time's up: auto-submit a selected option, otherwise skip ahead.
   const handleTimeUp = useCallback(() => {
@@ -581,40 +622,104 @@ export default function QuestionScreen() {
             })}
           </div>
 
-          {feedback && (
+          {(checking || feedback) && (
             <div
-              key={feedback.message}
-              className="flex items-center gap-3 px-5 py-3.5 animate-slide-up"
+              key={feedback?.message ?? "checking"}
+              className="flex items-center justify-between gap-3 px-5 py-3.5 animate-slide-up"
               style={{
-                background:
-                  feedback.type === "correct" ? "#E6F5F5" : "#FDECEA",
-                border: `2px solid ${feedback.type === "correct" ? "var(--color-teal-dark)" : "var(--color-ember)"}`,
-                borderLeft: `5px solid ${feedback.type === "correct" ? "var(--color-teal-dark)" : "var(--color-ember)"}`,
+                background: checking
+                  ? "var(--color-cream)"
+                  : feedback?.type === "correct"
+                    ? "#E6F5F5"
+                    : "#FDECEA",
+                border: `2px solid ${
+                  checking
+                    ? "var(--color-ink-muted)"
+                    : feedback?.type === "correct"
+                      ? "var(--color-teal-dark)"
+                      : "var(--color-ember)"
+                }`,
+                borderLeft: `5px solid ${
+                  checking
+                    ? "var(--color-ink-muted)"
+                    : feedback?.type === "correct"
+                      ? "var(--color-teal-dark)"
+                      : "var(--color-ember)"
+                }`,
               }}
             >
-              {feedback.type === "correct" ? (
-                <CheckCircle
-                  size={18}
-                  style={{ color: "var(--color-teal-dark)", flexShrink: 0 }}
-                />
-              ) : (
-                <XCircle
-                  size={18}
-                  style={{ color: "var(--color-ember)", flexShrink: 0 }}
-                />
+              <div className="flex items-center gap-3 min-w-0">
+                {checking ? (
+                  <span
+                    className="shrink-0 inline-block rounded-full animate-spin"
+                    style={{
+                      width: 16,
+                      height: 16,
+                      border: "2px solid var(--color-ink-muted)",
+                      borderTopColor: "transparent",
+                    }}
+                    aria-label="Checking answer"
+                  />
+                ) : feedback?.type === "correct" ? (
+                  <CheckCircle
+                    size={18}
+                    style={{ color: "var(--color-teal-dark)", flexShrink: 0 }}
+                  />
+                ) : (
+                  <XCircle
+                    size={18}
+                    style={{ color: "var(--color-ember)", flexShrink: 0 }}
+                  />
+                )}
+                <span
+                  className="text-sm font-500 truncate"
+                  style={{
+                    color: checking
+                      ? "var(--color-ink-muted)"
+                      : feedback?.type === "correct"
+                        ? "var(--color-teal-dark)"
+                        : "var(--color-ember-dark)",
+                    fontFamily: "var(--font-body)",
+                  }}
+                >
+                  {checking ? "Checking your answer…" : feedback?.message}
+                </span>
+              </div>
+              {showNext && (
+                <button
+                  onClick={handleNext}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-sm font-700"
+                  style={{
+                    background: "var(--color-ink)",
+                    color: "white",
+                    border: "2px solid var(--color-ink)",
+                    boxShadow: "2px 2px 0 var(--color-ember)",
+                    fontFamily: "var(--font-body)",
+                    cursor: "pointer",
+                    letterSpacing: "0.02em",
+                  }}
+                  onMouseDown={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.transform =
+                      "translate(2px, 2px)";
+                    (e.currentTarget as HTMLButtonElement).style.boxShadow =
+                      "none";
+                  }}
+                  onMouseUp={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.transform =
+                      "none";
+                    (e.currentTarget as HTMLButtonElement).style.boxShadow =
+                      "2px 2px 0 var(--color-ember)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.transform =
+                      "none";
+                    (e.currentTarget as HTMLButtonElement).style.boxShadow =
+                      "2px 2px 0 var(--color-ember)";
+                  }}
+                >
+                  Next →
+                </button>
               )}
-              <span
-                className="text-sm font-500"
-                style={{
-                  color:
-                    feedback.type === "correct"
-                      ? "var(--color-teal-dark)"
-                      : "var(--color-ember-dark)",
-                  fontFamily: "var(--font-body)",
-                }}
-              >
-                {feedback.message}
-              </span>
             </div>
           )}
 

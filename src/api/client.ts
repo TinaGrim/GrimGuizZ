@@ -553,11 +553,54 @@ export const Teacher = {
     }),
 
   assets: () => request<Asset[]>("/teacher/assets"),
-  uploadAsset: async (file: File) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    return request<Asset>("/teacher/assets/upload", { method: "POST", body: fd });
-  },
+  uploadAsset: (file: File, onProgress?: (percent: number) => void) =>
+    new Promise<Asset>((resolve, reject) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      // fetch has no upload-progress events, so route uploads through an
+      // XHR to drive the progress bar while still honoring the same auth /
+      // error conventions as request().
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", apiUrl("/teacher/assets/upload"));
+      const token = getTeacherToken();
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      if (onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)));
+          }
+        };
+      }
+      xhr.onload = () => {
+        let data: Asset | null = null;
+        try {
+          data = JSON.parse(xhr.responseText || "{}") as Asset;
+        } catch {
+          // non-JSON body
+        }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onProgress?.(100);
+          resolve(data as Asset);
+          return;
+        }
+        if (xhr.status === 401) {
+          try {
+            localStorage.removeItem(TOKEN_KEY);
+            window.dispatchEvent(new CustomEvent("quizz:teacher-signed-out"));
+          } catch {
+            // localStorage unavailable — best effort
+          }
+        }
+        reject(
+          new ApiError(
+            xhr.status,
+            (data as { detail?: string } | null)?.detail ?? `${xhr.status}`,
+          ),
+        );
+      };
+      xhr.onerror = () => reject(new ApiError(0, "Network error during upload"));
+      xhr.send(fd);
+    }),
   deleteAsset: (id: string) =>
     request<{ ok: boolean }>(`/teacher/assets/${id}`, { method: "DELETE" }),
 

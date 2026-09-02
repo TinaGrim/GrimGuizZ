@@ -136,12 +136,30 @@ export default function QuestionScreen() {
     // time spent on that retry, not the cumulative time.
     questionShownAtRef.current = Date.now();
 
-    const { correct, tries, shouldTroll, trollVideoUrl } = await submitAnswer(
-      question.questionId,
-      pickedIndex,
-      choicesRef.current,
-      elapsedMs / 1000,
-    );
+    const { correct, tries, shouldTroll, trollVideoUrl, completedAttempt } =
+      await submitAnswer(
+        question.questionId,
+        pickedIndex,
+        choicesRef.current,
+        elapsedMs / 1000,
+      );
+
+    // The attempt is already finished server-side (another tab completed it,
+    // or we re-entered this screen after finishing). End the quiz with the
+    // server's summary instead of treating this as a wrong answer — that
+    // previously unlocked the options and looped "Attempt already completed".
+    if (completedAttempt) {
+      try {
+        if (!attemptId) throw new Error("Missing attempt id");
+        const summary = await QuizTaking.complete(attemptId);
+        const result = completeQuiz(summary);
+        navigate(`/quiz/${quizId}/results`, { state: result });
+      } catch (err) {
+        console.error(err);
+        navigate("/quizzes");
+      }
+      return;
+    }
 
     // Preserve prior wrong markings — the warning sticks on each option
     // until the question itself finishes (correct, or 3rd-miss troll).
@@ -180,7 +198,15 @@ export default function QuestionScreen() {
         setSelectedOption(null);
       }
     }
-  }, [submitted, submitAnswer, question]);
+  }, [
+    submitted,
+    submitAnswer,
+    question,
+    attemptId,
+    quizId,
+    completeQuiz,
+    navigate,
+  ]);
 
   const advance = useCallback(async () => {
     if (advancing) return;

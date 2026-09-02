@@ -6,7 +6,7 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
-import { Students, Teacher, QuizTaking, type QuestionServed, type AttemptSummary, type ActiveAttempt } from "../api/client";
+import { Students, Teacher, QuizTaking, ApiError, type QuestionServed, type AttemptSummary, type ActiveAttempt } from "../api/client";
 import type {
   Student,
   Quiz,
@@ -75,6 +75,7 @@ interface AppContextType extends AppState {
     tries: number;
     shouldTroll: boolean;
     trollVideoUrl: string | null;
+    completedAttempt?: boolean;
   }>;
   advanceQuestion: () => void;
   completeQuiz: (summary: AttemptSummary) => { score: number; total: number; answers: QuizSessionAnswer[] };
@@ -364,6 +365,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       tries: number;
       shouldTroll: boolean;
       trollVideoUrl: string | null;
+      completedAttempt?: boolean;
     }> => {
       if (!attemptId)
         return { correct: false, tries: 0, shouldTroll: false, trollVideoUrl: null };
@@ -394,6 +396,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         return data;
       } catch (e) {
+        // The attempt is already finished server-side — e.g. another tab
+        // completed it, or we landed back on the question screen after the
+        // quiz was finished. Don't swallow this as a "wrong answer" (that
+        // unlocked the options and let the student re-submit against a
+        // completed attempt forever, spamming "Attempt already completed").
+        // Signal it so the UI can end the quiz with the server's summary.
+        if (e instanceof ApiError && e.status === 400 && e.message === "Attempt already completed") {
+          return {
+            correct: false,
+            tries: 0,
+            shouldTroll: false,
+            trollVideoUrl: null,
+            completedAttempt: true,
+          };
+        }
         console.error(e);
         return { correct: false, tries: 0, shouldTroll: false, trollVideoUrl: null };
       }
@@ -418,6 +435,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setSessionAnswers(answers);
       setAttemptSummary(summary);
       localStorage.removeItem(RESUME_KEY);
+      // Tear down the in-progress session so the question screen can't be
+      // remounted against the just-completed attempt (e.g. browser back
+      // after the results page, or a second tab). An empty `questionsServed`
+      // bounces the question route back to the dashboard.
+      setAttemptId(null);
+      setQuestionsServed([]);
+      setCurrentQuestionIndex(0);
+      setCurrentTries(0);
+      setWheelResultState(null);
       // Refresh the student's quiz list so completed quizzes show their
       // updated bestScore / "Done" state immediately (server now has the
       // completed attempt).

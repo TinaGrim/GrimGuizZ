@@ -17,6 +17,10 @@ from .config import settings
 logger = logging.getLogger("quizz")
 
 
+class StorageError(Exception):
+    """Media-store operation failed; message carries the underlying error."""
+
+
 def is_remote() -> bool:
     """True when R2 credentials are fully configured (prod mode)."""
     return bool(
@@ -59,13 +63,17 @@ def _s3_client_ctx():
 async def save(key: str, data: bytes, content_type: str) -> None:
     """Persist `data` at `/uploads/...` `key`. R2 when configured, else disk."""
     if is_remote():
-        async with _s3_client_ctx() as client:
-            await client.put_object(
-                Bucket=settings.r2_bucket,
-                Key=_object_key(key),
-                Body=data,
-                ContentType=content_type,
-            )
+        try:
+            async with _s3_client_ctx() as client:
+                await client.put_object(
+                    Bucket=settings.r2_bucket,
+                    Key=_object_key(key),
+                    Body=data,
+                    ContentType=content_type,
+                )
+        except Exception as exc:  # ClientError, BotoCoreError, ...
+            logger.exception("R2 put_object(%s) failed", key)
+            raise StorageError(f"R2 upload failed: {exc}") from exc
         return
     path = _local_path(key)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -76,8 +84,12 @@ async def save(key: str, data: bytes, content_type: str) -> None:
 async def delete(key: str) -> None:
     """Remove the object behind `/uploads/...` `key` (R2 or disk)."""
     if is_remote():
-        async with _s3_client_ctx() as client:
-            await client.delete_object(Bucket=settings.r2_bucket, Key=_object_key(key))
+        try:
+            async with _s3_client_ctx() as client:
+                await client.delete_object(Bucket=settings.r2_bucket, Key=_object_key(key))
+        except Exception as exc:
+            logger.exception("R2 delete_object(%s) failed", key)
+            raise StorageError(f"R2 delete failed: {exc}") from exc
         return
     try:
         os.remove(_local_path(key))

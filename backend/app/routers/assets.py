@@ -93,7 +93,10 @@ async def _store_image(db, file: UploadFile) -> dict:
     out = BytesIO()
     img.save(out, **save_kwargs)
     url = f"/uploads/{filename}"
-    await storage.save(url, out.getvalue(), file.content_type)
+    try:
+        await storage.save(url, out.getvalue(), file.content_type)
+    except storage.StorageError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     asset_id = ObjectId()
     await db.assets.insert_one({
         "_id": asset_id,
@@ -141,7 +144,10 @@ async def _store_video(db, file: UploadFile) -> dict:
     ext = ext_map.get(file.content_type, "mp4")
     filename = f"{uuid.uuid4().hex}.{ext}"
     url = f"/uploads/{filename}"
-    await storage.save(url, data, file.content_type)
+    try:
+        await storage.save(url, data, file.content_type)
+    except storage.StorageError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     asset_id = ObjectId()
     await db.assets.insert_one({
         "_id": asset_id,
@@ -219,6 +225,9 @@ async def delete_asset(asset_id: str, teacher_id: str = Depends(get_current_teac
             detail=f"Cannot delete — this asset is used by {in_use} question(s). Remove it from those questions first.",
         )
 
-    await storage.delete(asset["url"])
+    try:
+        await storage.delete(asset["url"])
+    except storage.StorageError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     await db.assets.delete_one({"_id": asset["_id"]})
     return {"ok": True}

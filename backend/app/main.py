@@ -10,6 +10,7 @@ from .db import close_db, get_db
 from .migrations import run_migrations
 from .routers import assets, quiz_taking, quotes, students, teacher
 from .seed_runner import seed_if_empty
+from . import storage
 
 logger = logging.getLogger("quizz")
 # Default to INFO so the startup CORS / JWT-secret messages make it into
@@ -134,6 +135,10 @@ async def cors_health():
     return {
         "cors_origins": settings.cors_origins,
         "env": settings.env,
+        "media_storage": "r2" if storage.is_remote() else "local",
+        "r2_bucket": storage.is_remote() and settings.r2_bucket or None,
+        "r2_public_base": settings.r2_public_base or None,
+        "public_base_url": settings.public_base_url or None,
         "hint": (
             "If your frontend is being blocked with 'Disallowed CORS "
             "origin', add its origin to CORS_ORIGINS on this service "

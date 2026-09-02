@@ -26,9 +26,12 @@ services:
       # Uploaded media is stored as `/uploads/...` and served by this
       # backend, so the asset/library URLs the API returns must be
       # absolute or they'd 404 on Vercel's SPA rewrite. Set to the
-      # deployed backend origin.
+      # deployed backend origin. `sync: true` so pushes to main re-apply
+      # it to the existing service (the rest are sync:false on purpose —
+      # they're managed from the dashboard).
       - key: PUBLIC_BASE_URL
         value: https://grimguizz.onrender.com
+        sync: true
       # `QUIZZ_ENV=production` flips the dev-secret warning into a
       # hard startup error, so a misconfigured deploy can't run with
       # the publicly-known default secret.

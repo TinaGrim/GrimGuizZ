@@ -8,7 +8,7 @@ Mastery thresholds (stricter rule per the addendum decision):
 """
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from bson import ObjectId
@@ -18,6 +18,15 @@ MASTERY_THRESHOLDS = {
     "strong": 0.85,
     "getting_there": 0.50,
 }
+
+# Goal line used by the student dashboard for "am I on track?" copy. No
+# teacher-set goal exists yet — this is a sane default aligned with the
+# amber/teal band boundary the UI already draws at ~60%.
+PASS_THRESHOLD = 60.0
+
+# Weakest-chapter / weakest-lesson gate: don't call anything "weak" when every
+# area sits at or above this latest-only percent.
+WEAKEST_MIN_PERCENT = 90.0
 
 
 def mastery_label(first_try_correct_rate: float | None, attempts: int = 0) -> str:
@@ -51,6 +60,19 @@ def trend_label(scores: list[float]) -> str:
     return "steady"
 
 
+def _two_window_delta(scores: list[float]) -> float | None:
+    """Delta (later half minus earlier half) in percent points; the magnitude
+    behind a trend label. Returns None when there isn't enough signal."""
+    if len(scores) < 4:
+        return None
+    half = len(scores) // 2
+    earlier = scores[:half]
+    later = scores[half:]
+    if len(earlier) < 2 or len(later) < 2:
+        return None
+    return (sum(later) / len(later) - sum(earlier) / len(earlier)) * 100
+
+
 def status_flag(recent_scores: list[float], prior_scores: list[float] | None = None) -> str:
     """Compute a student's status from their score trend with hysteresis.
 
@@ -81,13 +103,24 @@ def date_bucket(iso: str, period: str) -> str:
     return d.strftime("%Y-%m")  # coarser bucket for year view
 
 
-async def _completed_attempts(db, *, user_id: str | None = None, since_iso: str | None = None) -> list[dict]:
-    """Return all completed attempts, optionally filtered by user + since."""
+async def _completed_attempts(
+    db,
+    *,
+    user_id: str | None = None,
+    since_iso: str | None = None,
+    until_iso: str | None = None,
+) -> list[dict]:
+    """Return all completed attempts, optionally filtered by user + window."""
     query: dict[str, Any] = {"status": "completed"}
     if user_id is not None:
         query["userId"] = user_id
+    window: dict[str, Any] = {}
     if since_iso is not None:
-        query["completedAt"] = {"$gte": since_iso}
+        window["$gte"] = since_iso
+    if until_iso is not None:
+        window["$lt"] = until_iso
+    if window:
+        query["completedAt"] = window
     cursor = db.attempts.find(query)
     return [a async for a in cursor]
 
@@ -178,6 +211,77 @@ def _median(xs: list[float]) -> float:
     return (s[mid - 1] + s[mid]) / 2
 
 
+def _range_days(period: str) -> int:
+    """Days covered by a class/report range selector."""
+    return {"week": 7, "month": 30, "year": 365}.get(period, 30)
+
+
+def _window_summary(
+    window_attempts: list[dict],
+    *,
+    quiz_map: dict[str, dict],
+    lesson_map: dict[str, dict],
+    quiet_cutoff_iso: str,
+) -> dict:
+    """Compact aggregate for a completed-attempt window — no DB calls.
+
+    Used to compute the `vsPrevious` deltas on the class report without
+    re-running the whole per-student rollup a second time. All lookups hit
+    the preloaded quiz/lesson maps, which the caller builds to cover both the
+    current and previous windows.
+    """
+    n = len(window_attempts)
+    ftc_total = 0
+    ftc_questions = 0
+    percs: list[float] = []
+    by_student_avg: dict[str, list[float]] = defaultdict(list)
+    by_student_last: dict[str, str] = {}
+    by_lesson: dict[str, list[dict]] = defaultdict(list)
+    for a in window_attempts:
+        ft, fq = _first_try_correct_count(a.get("answers", []))
+        ftc_total += ft
+        ftc_questions += fq
+        pct = _attempt_percent(a)
+        percs.append(pct)
+        uid = a.get("userId", "")
+        if uid:
+            by_student_avg[uid].append(pct)
+            last = a.get("completedAt", "") or ""
+            if last and last > by_student_last.get(uid, ""):
+                by_student_last[uid] = last
+        q = quiz_map.get(a.get("quizId") or "")
+        if q:
+            lesson = lesson_map.get(q.get("lessonId") or "")
+            if lesson:
+                by_lesson[str(lesson["_id"])].append(a)
+
+    lesson_rates: dict[str, float] = {}
+    for lid, atts in by_lesson.items():
+        agg = _aggregate_lesson(atts)
+        if agg["firstTryCorrectRate"] > 0:
+            lesson_rates[lid] = round(agg["firstTryCorrectRate"], 4)
+
+    attention = 0
+    active = 0
+    for uid, pcs in by_student_avg.items():
+        active += 1
+        if sum(pcs) / len(pcs) < 0.5:
+            attention += 1
+
+    quiet = sum(1 for last in by_student_last.values() if last < quiet_cutoff_iso)
+
+    return {
+        "attempts": n,
+        "firstTryCorrect": ftc_total,
+        "firstTryQuestions": ftc_questions,
+        "avgScore": round(sum(percs) / len(percs) * 100, 1) if percs else 0.0,
+        "activeStudents": active,
+        "attentionCount": attention,
+        "quietCount": quiet,
+        "lessonRates": lesson_rates,
+    }
+
+
 def _wrong_answer_patterns(
     answers_by_lesson: dict[str, list[dict]],
     lesson_lookup,
@@ -244,6 +348,22 @@ async def build_student_report(
     # 1) Per-lesson aggregation: resolve quiz -> lesson, group attempts by lesson.
     attempts = await _completed_attempts(db, user_id=student_id, since_iso=since_iso)
 
+    # Class average for the same range (per-student mean, then mean across
+    # students — same math as build_class_report) so the student can see where
+    # they stand against the room. Requires a second pass over all attempts.
+    class_attempts = await _completed_attempts(db, since_iso=since_iso)
+    by_student_scores: dict[str, list[float]] = defaultdict(list)
+    for a in class_attempts:
+        uid = a.get("userId", "")
+        if uid:
+            by_student_scores[uid].append(_attempt_percent(a))
+    class_average = 0.0
+    if by_student_scores:
+        class_average = (
+            sum(sum(v) / len(v) for v in by_student_scores.values())
+            / len(by_student_scores)
+        )
+
     # Preload the catalog in a handful of batched $in queries (a handful of
     # round-trips instead of N sequential find_one calls). Then all lookups
     # below are plain dict hits.
@@ -255,6 +375,17 @@ async def build_student_report(
         "questions",
         {str(ans.get("questionId") or "") for a in attempts for ans in (a.get("answers") or [])},
     )
+
+    # Assigned-quiz lookup (ALL assigned, not just attempted ones) so the
+    # "recommended next quiz" can point at an active quiz the student can
+    # actually start, plus a per-quiz best-score map for headroom ordering.
+    assigned_ids = {str(q) for q in (student.get("assignedQuizIds") or [])}
+    assigned_quiz_map = await _fetch_by_ids(db, "quizzes", assigned_ids)
+    quiz_best: dict[str, float] = {}
+    for a in attempts:
+        qid = a.get("quizId") or ""
+        if qid:
+            quiz_best[qid] = max(quiz_best.get(qid, 0.0), _attempt_percent(a))
 
     # Group attempts by lessonId, building chapter info per lesson.
     by_lesson: dict[str, list[dict]] = defaultdict(list)
@@ -416,13 +547,28 @@ async def build_student_report(
         except Exception:
             continue
     streak_days = 0
+    completed_today = False
+    best_streak_days = 0
     if day_keys:
         today = datetime.now(timezone.utc).date()
+        completed_today = today.isoformat() in day_keys
         d = today
         # Count back from today while we keep finding attempts on that day.
         while d.isoformat() in day_keys:
             streak_days += 1
             d = d.fromordinal(d.toordinal() - 1)
+        # Longest-ever run of consecutive days — powers the streak milestone
+        # callout ("new 7-day milestone") and keeps the badge honest when the
+        # current streak just reset.
+        best_run = 0
+        run = 0
+        prev = None
+        for day in sorted(day_keys):
+            cur = datetime.fromisoformat(day).date()
+            run = run + 1 if prev and (cur - prev).days == 1 else 1
+            best_run = max(best_run, run)
+            prev = cur
+        best_streak_days = best_run
 
     # 6) Most-improved chapter: real two-window comparison (per addendum §1.5).
     # For each chapter, split its attempts in the selected range by completion
@@ -456,7 +602,6 @@ async def build_student_report(
     # must be genuinely different logic / different fields, not collide).
     # If every chapter is at or above WEAKEST_MIN_PERCENT, suppress — calling
     # the chapter with the *least high* score "weakest" is misleading.
-    WEAKEST_MIN_PERCENT = 90.0
     weakest_chapter = None
     if per_chapter_list:
         candidates = [c for c in per_chapter_list if c.get("attempts", 0) >= 2]
@@ -469,17 +614,68 @@ async def build_student_report(
             if pick.get("percent", 0) < WEAKEST_MIN_PERCENT:
                 weakest_chapter = pick
 
-    # 7) Recent activity (newest first)
-    recent: list[dict] = []
+    # 6c) Weakest lesson + "recommended next quiz" (action lane). Pick the
+    # lowest latest-only percent among attempted lessons, resolve an active
+    # ASSIGNED quiz in that lesson (lowest best score first = most headroom).
+    # Suppressed when every attempted lesson sits at/above WEAKEST_MIN_PERCENT.
+    weakest_lesson: dict | None = None
+
+    def _active_assigned_quiz(lesson_id: str) -> dict | None:
+        candidates = []
+        for qid in assigned_ids:
+            q = assigned_quiz_map.get(qid)
+            if q is None or q.get("status") != "active":
+                continue
+            if str(q.get("lessonId") or "") != lesson_id:
+                continue
+            candidates.append(q)
+        if not candidates:
+            return None
+        # Unattempted quizzes (best 1.0) sort last; lowest attempted best first.
+        candidates.sort(key=lambda q: quiz_best.get(str(q["id"]), 1.0))
+        return candidates[0]
+
+    if per_lesson:
+        lesson_candidates = [l for l in per_lesson if l.get("attempts", 0) >= 1]
+        if lesson_candidates:
+            pick = min(
+                lesson_candidates,
+                key=lambda l: (l.get("percent", 0), l.get("firstTryCorrectRate", 0)),
+            )
+            if pick.get("percent", 0) < WEAKEST_MIN_PERCENT:
+                rec = _active_assigned_quiz(pick["lessonId"])
+                weakest_lesson = {
+                    "lessonId": pick["lessonId"],
+                    "lessonTitle": pick.get("lessonTitle"),
+                    "chapterName": pick.get("chapterName"),
+                    "percent": pick.get("percent", 0),
+                    "attempts": pick.get("attempts", 0),
+                    "firstTryCorrectRate": pick.get("firstTryCorrectRate", 0),
+                    "recommendedQuizId": rec["id"] if rec else None,
+                    "recommendedQuizTitle": rec.get("title") if rec else None,
+                    "reason": f"lowest score this {period}",
+                }
+
+    # 6d) Overall trend magnitude — same two-window delta used for chapter
+    # "most improved", applied to the whole range's attempt series.
+    overall_percs = [_attempt_percent(a) for a in attempts]
+    trend_delta = _two_window_delta(overall_percs)
+
+    # 7) Recent activity (newest first): `history` carries every attempt in
+    # range (powers "view all attempts"), `recent` stays capped for existing
+    # consumers.
+    history: list[dict] = []
     sorted_attempts = sorted(attempts, key=lambda a: a.get("completedAt", ""), reverse=True)
-    for a in sorted_attempts[:10]:
+
+    def _attempt_entry(a: dict) -> dict:
         q = quiz_map.get(a.get("quizId") or "")
         lesson = lesson_map.get(q.get("lessonId") or "") if q else None
         chapter = chapter_map.get(lesson.get("chapterId") or "") if lesson else None
-        recent.append({
+        return {
             "attemptId": str(a["_id"]),
             "quizId": a.get("quizId"),
             "quizTitle": q.get("title") if q else None,
+            "lessonId": lesson.get("id") if lesson else None,
             "chapterName": chapter.get("name") if chapter else None,
             "lessonTitle": lesson.get("title") if lesson else None,
             "score": a.get("score", 0),
@@ -487,37 +683,49 @@ async def build_student_report(
             "completedAt": a.get("completedAt"),
             "timeSpentSeconds": a.get("totalTimeSpentSeconds", 0.0) or 0.0,
             "firstTryCorrectCount": _first_try_correct_count(a.get("answers", []))[0],
-        })
+        }
+
+    history = [_attempt_entry(a) for a in sorted_attempts]
+    recent = history[:10]
 
     return {
         "range": period,
         "attemptCount": len(attempts),
         "overallPercent": round(overall_percent * 100, 1),
         "firstTryCorrectRate": round(first_try_rate, 4),
-        "trend": trend_label([_attempt_percent(a) for a in attempts]),
+        "trend": trend_label(overall_percs),
+        "trendDeltaPercent": round(trend_delta, 1) if trend_delta is not None else None,
         "streakDays": streak_days,
+        "completedToday": completed_today,
+        "bestStreakDays": best_streak_days,
+        "classAveragePercent": round(class_average * 100, 1),
+        "passThreshold": PASS_THRESHOLD,
         "mostImprovedChapterName": most_improved,
         "mostImprovedDeltaPercent": most_improved_delta,
         "weakestChapterName": (weakest_chapter or {}).get("chapterName") if weakest_chapter else None,
+        "weakestLesson": weakest_lesson,
         "perChapter": per_chapter_list,
         "perLesson": per_lesson,
         "scoreHistory": score_history,
         "recent": recent,
+        "history": history,
     }
 
 
 async def build_class_report(db, period: str) -> dict:
-    """Class-wide aggregates for the teacher dashboard / reports."""
-    now = datetime.now(timezone.utc)
-    if period == "week":
-        since = now - __import__("datetime").timedelta(days=7)
-    elif period == "month":
-        since = now - __import__("datetime").timedelta(days=30)
-    else:
-        since = now - __import__("datetime").timedelta(days=365)
-    since_iso = since.isoformat()
+    """Class-wide aggregates for the teacher dashboard / reports.
 
-    # Students
+    Includes per-student status flags (feeds the "needs attention" queue), a
+    range-relative engagement drop-off, and a `vsPrevious` block so the
+    dashboard can render deltas vs the preceding window in one request.
+    """
+    now = datetime.now(timezone.utc)
+    days = _range_days(period)
+    since = now - timedelta(days=days)
+    since_iso = since.isoformat()
+    prev_since_iso = (since - timedelta(days=days)).isoformat()
+
+    # Students (scaffold incl. check-in marker for the action queue)
     students: list[dict] = []
     student_ids: list[str] = []
     async for s in db.students.find().sort("name", 1):
@@ -531,18 +739,28 @@ async def build_class_report(db, period: str) -> dict:
                 "attemptCount": 0,
                 "completedAny": False,
                 "averageScore": 0,
+                "bestScore": 0,
                 "firstTryCorrectRate": 0.0,
+                "firstTryCorrectCount": 0,
+                "firstTryQuestions": 0,
                 "lastActiveAt": None,
+                "status": "on_track",
+                "overallPercent": 0,
+                "trend": "steady",
+                "checkedInAt": s.get("checkedInAt") or None,
             }
         )
 
-    # Aggregated stats
+    # Attempt windows: current + immediately previous (for trend deltas).
     all_attempts = await _completed_attempts(db, since_iso=since_iso)
+    prev_attempts = await _completed_attempts(
+        db, since_iso=prev_since_iso, until_iso=since_iso
+    )
 
-    # Preload the whole catalog referenced by the period's attempts in a few
-    # batched $in queries (vs one find_one per attempt). Lookups below are
-    # synchronous dict hits.
-    quiz_map = await _fetch_by_ids(db, "quizzes", {str(a.get("quizId") or "") for a in all_attempts})
+    # Preload the catalog ONCE, covering BOTH windows, with a few batched $in
+    # queries — lookups below become synchronous dict hits.
+    quiz_ids = {str(a.get("quizId") or "") for a in (*all_attempts, *prev_attempts)}
+    quiz_map = await _fetch_by_ids(db, "quizzes", quiz_ids)
     lesson_map = await _fetch_by_ids(db, "lessons", {str(q.get("lessonId") or "") for q in quiz_map.values()})
     chapter_map = await _fetch_by_ids(db, "chapters", {str(l.get("chapterId") or "") for l in lesson_map.values()})
 
@@ -563,7 +781,7 @@ async def build_class_report(db, period: str) -> dict:
         ftc_total += ftc
         ftc_questions += ftcQ
 
-    # Per-student rollup
+    # Per-student rollup (status + trend feed the dashboard action queue)
     for sid, atts in by_student.items():
         if sid not in sindex:
             continue
@@ -572,6 +790,7 @@ async def build_class_report(db, period: str) -> dict:
         s["completedAny"] = True
         scores = [_attempt_percent(a) for a in atts]
         s["averageScore"] = round(sum(scores) / len(scores) * 100) if scores else 0
+        s["overallPercent"] = s["averageScore"]
         s["bestScore"] = round(max(scores) * 100) if scores else 0
         ftt = 0
         ftq = 0
@@ -583,7 +802,13 @@ async def build_class_report(db, period: str) -> dict:
         s["firstTryCorrectCount"] = ftt
         s["firstTryQuestions"] = ftq
         s["lastActiveAt"] = max((a.get("completedAt") for a in atts if a.get("completedAt")), default=None)
-        # Recent attempts (newest first) so the UI can inline-expand per-student detail.
+        # Trend + flag from the student's chronological attempt series
+        ordered = sorted(atts, key=lambda x: x.get("completedAt", "") or "")
+        percs = [_attempt_percent(x) for x in ordered]
+        s["trend"] = trend_label(percs)
+        s["status"] = status_flag(percs[-3:], percs[-6:-3]) if percs else "on_track"
+        # Recent attempts (newest first) so the dashboard can show notable ones
+        # without expanding anything.
         recent: list[dict] = []
         for a in sorted(atts, key=lambda x: x.get("completedAt", ""), reverse=True)[:5]:
             q = quiz_map.get(a.get("quizId") or "")
@@ -593,8 +818,9 @@ async def build_class_report(db, period: str) -> dict:
                 "attemptId": str(a["_id"]),
                 "quizId": a.get("quizId"),
                 "quizTitle": q.get("title") if q else None,
-                "chapterName": chapter.get("name") if chapter else None,
+                "lessonId": str(lesson["_id"]) if lesson else None,
                 "lessonTitle": lesson.get("title") if lesson else None,
+                "chapterName": chapter.get("name") if chapter else None,
                 "score": a.get("score", 0),
                 "total": a.get("total", 0),
                 "completedAt": a.get("completedAt"),
@@ -629,29 +855,58 @@ async def build_class_report(db, period: str) -> dict:
         })
     per_lesson_difficulty.sort(key=lambda l: (l["firstTryCorrectRate"], l["avgScore"]))
 
-    # Engagement drop-off: had activity >7 days ago, no activity in last 7 days.
+    # Engagement drop-off: active this period but quiet in its final quarter —
+    # range-relative so the period selector scopes every card honestly.
+    quarter = max(int(days / 4), 1)
+    quiet_cutoff_iso = (now - timedelta(days=quarter)).isoformat()
     drop_off: list[dict] = []
-    cutoff = now - __import__("datetime").timedelta(days=7)
-    cutoff_iso = cutoff.isoformat()
-    earlier_cutoff = now - __import__("datetime").timedelta(days=21)
-    earlier_cutoff_iso = earlier_cutoff.isoformat()
     for s in students:
-        sid = s["id"]
-        if s["lastActiveAt"] is None:
-            continue
         last = s["lastActiveAt"]
-        if last >= cutoff_iso:
-            continue  # active recently
-        if last < earlier_cutoff_iso:
-            continue  # never had recent-enough activity
-        # has prior activity (last > 14 days ago) but no activity in last 7.
+        if not last:
+            continue
+        if last >= quiet_cutoff_iso:
+            continue  # active in the final quarter
         try:
             d = datetime.fromisoformat(last.replace("Z", "+00:00"))
-            days = (now - d).days
+            days_since = (now - d).days
         except Exception:
-            days = 0
-        drop_off.append({"studentId": sid, "name": s["name"], "lastActiveAt": last, "daysSince": days})
+            days_since = 0
+        drop_off.append({"studentId": s["id"], "name": s["name"], "lastActiveAt": last, "daysSince": days_since})
     drop_off.sort(key=lambda d: -d["daysSince"])
+
+    # Trend context: deltas vs the immediately-previous window of equal length.
+    prev = _window_summary(
+        prev_attempts,
+        quiz_map=quiz_map,
+        lesson_map=lesson_map,
+        quiet_cutoff_iso=(since - timedelta(days=quarter)).isoformat(),
+    )
+    attention_count = sum(1 for s in students if s["status"] == "needs_attention")
+
+    def _pd(cur: float, prev_val: float) -> float | None:
+        if prev_val <= 0:
+            return None
+        return round((cur - prev_val) / prev_val * 100, 1)
+
+    has_prev = prev["attempts"] > 0
+    per_lesson_delta: dict[str, float] = {}
+    for l in per_lesson_difficulty:
+        prev_rate = prev["lessonRates"].get(l["lessonId"])
+        if prev_rate is None:
+            continue
+        per_lesson_delta[l["lessonId"]] = round((l["firstTryCorrectRate"] - prev_rate) * 100, 1)
+
+    vs_previous = {
+        "hasPrevious": has_prev,
+        "attemptsDeltaPct": _pd(len(all_attempts), prev["attempts"]),
+        "firstTryDeltaPct": _pd(ftc_total, prev["firstTryCorrect"]),
+        "questionsDeltaPct": _pd(ftc_questions, prev["firstTryQuestions"]),
+        "avgScoreDeltaPts": round(avg_all - prev["avgScore"], 1) if has_prev else None,
+        "activeStudentsDelta": attempted - prev["activeStudents"] if has_prev else None,
+        "attentionCountDelta": attention_count - prev["attentionCount"] if has_prev else None,
+        "quietCountDelta": len(drop_off) - prev["quietCount"] if has_prev else None,
+        "perLesson": per_lesson_delta,
+    }
 
     return {
         "totalStudents": total_students,
@@ -661,6 +916,7 @@ async def build_class_report(db, period: str) -> dict:
         "students": students,
         "perLessonDifficulty": per_lesson_difficulty,
         "engagementDropOff": drop_off,
+        "vsPrevious": vs_previous,
     }
 
 

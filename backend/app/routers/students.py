@@ -114,11 +114,19 @@ async def _assigned_quizzes(student: dict) -> list:
             continue
         valid_ids.append(qid)
         best = 0.0
+        last = 0.0
+        last_at = ""
         seen_attempt = False
         async for a in db.attempts.find({"userId": str(student["_id"]), "quizId": qid, "status": "completed"}):
             seen_attempt = True
-            best = max(best, a.get("score", 0) / max(a.get("total", 1), 1))
+            pct = a.get("score", 0) / max(a.get("total", 1), 1)
+            best = max(best, pct)
+            stamp = a.get("completedAt") or a.get("startedAt") or ""
+            if stamp >= last_at:
+                last_at = stamp
+                last = pct
         quiz["bestScore"] = round(best * 100) if seen_attempt else None
+        quiz["lastScore"] = round(last * 100) if seen_attempt else None
         quiz["id"] = str(quiz.pop("_id"))
         quizzes.append(quiz)
     # Drop dangling references so the student doesn't keep "having" quizzes
@@ -225,6 +233,7 @@ async def get_active_attempt(
             "lessonTitle": lesson.get("title") if lesson else None,
             "chapterName": chapter.get("name") if chapter else None,
             "wheelResult": attempt.get("wheelResult"),
+            "lucky": attempt.get("lucky", ""),
             "startedAt": attempt.get("startedAt"),
             "questionsServed": [
                 {

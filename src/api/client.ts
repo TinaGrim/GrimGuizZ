@@ -103,9 +103,12 @@ export interface AttemptAnswerOut {
   correctOptionIndex: number;
 }
 
+export type LuckyMode = "" | "extra" | "double";
+
 export interface SpinResponse {
   wheelResult: 1 | 2 | 3;
   maxWheelValue: 1 | 2 | 3;
+  lucky?: LuckyMode;
   questionsServed: QuestionServed[];
 }
 
@@ -114,6 +117,7 @@ export interface AttemptSummary {
   score: number;
   total: number;
   wheelResult: number;
+  lucky?: LuckyMode;
   totalTimeSpentSeconds: number;
   breakdown: AttemptAnswerOut[];
   completedAt: string;
@@ -135,6 +139,7 @@ export interface ActiveAttempt {
   lessonTitle: string | null;
   chapterName: string | null;
   wheelResult: 1 | 2 | 3;
+  lucky?: LuckyMode;
   startedAt: string;
   questionsServed: QuestionServed[];
   nextQuestionIndex: number;
@@ -171,6 +176,13 @@ export interface Quote {
   createdAt: string;
 }
 
+export interface FeaturedQuip {
+  name: string;
+  quiz: string;
+  quip: string;
+  date: string;
+}
+
 export type MasteryLabel = "Strong" | "Getting there" | "Needs practice";
 export type TrendLabel = "improving" | "declining" | "steady";
 export type StatusFlag = "on_track" | "falling_behind" | "needs_attention";
@@ -178,6 +190,32 @@ export type StatusFlag = "on_track" | "falling_behind" | "needs_attention";
 export interface ScoreHistoryPoint {
   bucket: string;
   percent: number;
+}
+
+export interface AttemptHistoryEntry {
+  attemptId: string;
+  quizId: string;
+  quizTitle: string | null;
+  lessonId: string | null;
+  lessonTitle: string | null;
+  chapterName: string | null;
+  score: number;
+  total: number;
+  completedAt: string;
+  timeSpentSeconds: number;
+  firstTryCorrectCount: number;
+}
+
+export interface WeakestLesson {
+  lessonId: string;
+  lessonTitle: string | null;
+  chapterName: string | null;
+  percent: number;
+  attempts: number;
+  firstTryCorrectRate: number;
+  recommendedQuizId: string | null;
+  recommendedQuizTitle: string | null;
+  reason: string;
 }
 
 export interface PerChapterStats {
@@ -212,6 +250,7 @@ export interface RecentActivity {
   attemptId: string;
   quizId: string;
   quizTitle: string | null;
+  lessonId: string | null;
   chapterName: string | null;
   lessonTitle: string | null;
   score: number;
@@ -227,12 +266,21 @@ export interface StudentReport {
   overallPercent: number;
   firstTryCorrectRate: number;
   trend: TrendLabel;
+  trendDeltaPercent: number | null;
   streakDays: number;
+  bestStreakDays: number;
+  completedToday: number;
+  classAveragePercent: number;
+  passThreshold: number;
   mostImprovedChapterName: string | null;
+  mostImprovedDeltaPercent: number | null;
+  weakestChapterName: string | null;
+  weakestLesson: WeakestLesson | null;
   perChapter: PerChapterStats[];
   perLesson: PerLessonStats[];
   scoreHistory: ScoreHistoryPoint[];
   recent: RecentActivity[];
+  history: AttemptHistoryEntry[];
   // teacher-only (populated on /api/teacher/reports/:id, omitted from /api/students/:id/report):
   student?: { id: string; name: string; lastActiveAt: string | null; status: StatusFlag };
   timeOnTask?: {
@@ -282,7 +330,23 @@ export interface ClassStudent {
   firstTryCorrectCount: number;
   firstTryQuestions: number;
   lastActiveAt: string | null;
+  status: StatusFlag;
+  overallPercent: number;
+  trend: TrendLabel;
+  checkedInAt: string | null;
   recent: RecentActivity[];
+}
+
+export interface ClassVsPrevious {
+  hasPrevious: boolean;
+  attemptsDeltaPct: number | null;
+  firstTryDeltaPct: number | null;
+  questionsDeltaPct: number | null;
+  avgScoreDeltaPts: number | null;
+  activeStudentsDelta: number | null;
+  attentionCountDelta: number | null;
+  quietCountDelta: number | null;
+  perLesson: Record<string, number>;
 }
 
 export interface ClassReport {
@@ -293,6 +357,7 @@ export interface ClassReport {
   students: ClassStudent[];
   perLessonDifficulty: ClassLessonDifficulty[];
   engagementDropOff: ClassDropOff[];
+  vsPrevious: ClassVsPrevious;
 }
 
 class ApiError extends Error {
@@ -407,6 +472,7 @@ export const Students = {
     studentRequest<ActiveAttemptResponse>(`/students/${studentId}/active-attempt`),
   randomQuote: () => request<Quote>("/quotes/random"),
   quotes: () => request<Quote[]>("/quotes"),
+  featuredQuip: () => request<FeaturedQuip | null>("/featured/quip"),
 };
 
 // ─── Quiz-taking ─────────────────────────────────────────────────────────────
@@ -417,9 +483,10 @@ export const QuizTaking = {
   createAttempt: (body: {
     quizId: string;
     wheelResult: 1 | 2 | 3;
+    lucky?: LuckyMode;
     deviceType?: string;
   }) =>
-    studentRequest<{ id: string; wheelResult: number; questionsServed: QuestionServed[]; total: number }>(
+    studentRequest<{ id: string; wheelResult: number; lucky?: LuckyMode; questionsServed: QuestionServed[]; total: number }>(
       "/attempts",
       { method: "POST", body: JSON.stringify(body) },
     ),
@@ -626,6 +693,18 @@ export const Teacher = {
     request<StudentReport>(`/teacher/reports/${studentId}?range=${range}`),
   studentAttempt: (studentId: string, attemptId: string) =>
     request<AttemptSummary>(`/teacher/reports/${studentId}/attempts/${attemptId}`),
+  checkIn: (studentId: string, checked: boolean) =>
+    request<{ ok: boolean; checked: boolean; checkedInAt: string | null }>(
+      `/teacher/students/${studentId}/check-in`,
+      { method: "POST", body: JSON.stringify({ checked }) },
+    ),
+  wallOfShame: () =>
+    request<{ hiddenStudentIds: string[] }>("/teacher/wall-of-shame"),
+  setWallOfShame: (studentId: string, hidden: boolean) =>
+    request<{ ok: boolean; hidden: boolean }>(
+      `/teacher/students/${studentId}/wall-of-shame`,
+      { method: "POST", body: JSON.stringify({ hidden }) },
+    ),
   studentReportXlsx: async (
     studentId: string,
     range: "week" | "month" | "year" = "month",

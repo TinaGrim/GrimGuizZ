@@ -1,17 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router";
+import { motion } from "motion/react";
 import { useApp } from "../store/AppContext";
-import {
-  CheckCircle,
-  Clock,
-  Lock,
-  ChevronRight,
-  Star,
-  LogOut,
-} from "lucide-react";
+import StudentTopBar from "../components/StudentTopBar";
+import StudentAvatar from "../components/StudentAvatar";
+import FadeUp from "../components/FadeUp";
+import { Clock, Lock, ChevronRight, Star } from "lucide-react";
 import type { Quiz } from "../data/types";
 import StudentProgressPanel from "../components/StudentProgressPanel";
 import MessagesPanel from "../components/MessagesPanel";
+
+const QUIZ_LIST_SCROLL_KEY = "quizzz:quizListScrollY";
 
 const STATUS_CONFIG = {
   active: { label: "Available", color: "var(--color-teal)", bg: "#E6F5F5" },
@@ -32,16 +31,59 @@ export default function StudentQuizList() {
     messages,
     selectQuiz,
   } = useApp();
-  const [range, setRange] = useState<"week" | "month" | "year">("month");
 
   useEffect(() => {
     if (!currentStudent) navigate("/");
   }, [currentStudent, navigate]);
 
+  // Track the list's scroll continuously (rAF-throttled) so "previous
+  // position" means where the student was reading, not where the tapped card
+  // happens to sit. Only restores when they actually left into a quiz.
+  useEffect(() => {
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        sessionStorage.setItem(
+          QUIZ_LIST_SCROLL_KEY,
+          JSON.stringify({ y: window.scrollY, leaving: false }),
+        );
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
+
+  // Restore the spot the student left from when they went into a quiz, then
+  // clear it so a fresh visit starts at the top again.
+  useEffect(() => {
+    const raw = sessionStorage.getItem(QUIZ_LIST_SCROLL_KEY);
+    sessionStorage.removeItem(QUIZ_LIST_SCROLL_KEY);
+    if (!raw) return;
+    try {
+      const { y, leaving } = JSON.parse(raw) as { y: number; leaving: boolean };
+      if (leaving && y > 0) window.scrollTo(0, y);
+    } catch {
+      // malformed/stale — treat as a fresh visit
+    }
+  }, []);
+
   if (!currentStudent) return null;
+
+  const handleLeave = () => {
+    logoutStudent();
+    navigate("/");
+  };
 
   const handleSelectQuiz = (quiz: Quiz) => {
     if (quiz.status !== "active") return;
+    sessionStorage.setItem(
+      QUIZ_LIST_SCROLL_KEY,
+      JSON.stringify({ y: window.scrollY, leaving: true }),
+    );
     selectQuiz(quiz.id);
     navigate(`/quiz/${quiz.id}/pre`);
   };
@@ -63,160 +105,76 @@ export default function StudentQuizList() {
 
   return (
     <div className="min-h-screen" style={{ background: "var(--color-cream)" }}>
-      <div
-        className="sticky top-0 z-20 flex items-center justify-between px-6 py-4"
-        style={{
-          background: "var(--color-ink)",
-          borderBottom: "2px solid var(--color-ember)",
-        }}
-      >
-        <div className="flex items-center gap-3">
-          <span
-            className="text-xl font-900"
-            style={{ fontFamily: "var(--font-display)", color: "var(--color-amber)" }}
-          >
-            Quiz<span style={{ fontSize: "1.2em", lineHeight: 1 }}>Z</span>
-          </span>
-          <span
-            className="text-sm px-2 py-0.5"
-            style={{
-              background: "rgba(240,165,0,0.15)",
-              color: "var(--color-amber)",
-              border: "1px solid rgba(240,165,0,0.3)",
-              fontFamily: "var(--font-body)",
-            }}
-          >
-            {currentStudent.name}
-          </span>
-        </div>
-        <button
-          onClick={() => {
-            logoutStudent();
-            navigate("/");
-          }}
-          className="flex items-center gap-1.5 text-sm font-500"
-          style={{
-            color: "rgba(255,255,255,0.4)",
-            fontFamily: "var(--font-body)",
-            cursor: "pointer",
-            background: "none",
-            border: "none",
-          }}
-        >
-          <LogOut size={14} />
-          Leave
-        </button>
-      </div>
+      <StudentTopBar kind="home" studentName={currentStudent.name} onLeave={handleLeave} />
 
-      {/* ─── Mobile: Progress on top, then Messages, then Quiz list ─── */}
-      <div className="md:hidden flex flex-col gap-5 px-5 py-6 max-w-3xl mx-auto">
-        <h2
-          className="text-lg font-700"
-          style={{
-            fontFamily: "var(--font-display)",
-            color: "var(--color-ink)",
-          }}
-        >
-          Your Progress
-        </h2>
-        <StudentProgressPanel
-          studentId={currentStudent.id}
-          range={range}
-        />
-        <h2
-          className="text-lg font-700"
-          style={{
-            fontFamily: "var(--font-display)",
-            color: "var(--color-ink)",
-          }}
-        >
-          Message
-        </h2>
-        <MessagesPanel messages={messages} variant="full" />
-        <QuizList
-          grouped={grouped}
-          quizzes={quizzes}
-          onSelect={handleSelectQuiz}
-        />
-      </div>
-
-      {/* ─── Desktop order per §5.1: Progress | Messages, Quiz list below ─── */}
-      <div className="hidden md:block max-w-6xl mx-auto px-6 py-10">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <h2
-                className="text-lg font-700"
-                style={{
-                  fontFamily: "var(--font-display)",
-                  color: "var(--color-ink)",
-                }}
-              >
-                Your Progress
-              </h2>
-              <RangePicker value={range} onChange={setRange} />
-            </div>
-            <StudentProgressPanel
-              studentId={currentStudent.id}
-              range={range}
-            />
-          </div>
-          <div className="flex flex-col gap-4">
-            <h2
-              className="text-lg font-700"
+      {/* Single responsive layout — one tree for every breakpoint (the old
+          dual md:hidden / hidden md:block branches were identical to the
+          pixel, and duplicated the lesson anchors the progress panel flashes). */}
+      <div className="max-w-5xl lg:max-w-6xl mx-auto px-4 py-4 md:px-6 md:py-8 flex flex-col gap-5 md:gap-8">
+        <FadeUp className="flex items-center gap-4">
+          <StudentAvatar name={currentStudent.name} size={56} />
+          <div>
+            <p
+              className="font-900 leading-none"
               style={{
                 fontFamily: "var(--font-display)",
                 color: "var(--color-ink)",
+                fontSize: "clamp(1.25rem, 4vw, 1.6rem)",
               }}
             >
-              Message
-            </h2>
-            <MessagesPanel messages={messages} variant="full" />
+              Hi, {currentStudent.name.split(" ")[0]}!
+            </p>
+            <p className="mt-1.5 text-sm" style={{ color: "var(--color-ink-muted)" }}>
+              Pick a quiz and keep the streak going
+            </p>
           </div>
+        </FadeUp>
+
+        {/* Progress | Messages — side-by-side from md up (noted order §5.1),
+            stacked below it the quiz list. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 md:gap-6">
+          <section className="flex flex-col gap-3">
+            <SectionHeading>Your Progress</SectionHeading>
+            <StudentProgressPanel studentId={currentStudent.id} />
+          </section>
+          <section className="flex flex-col gap-3">
+            <SectionHeading>Message</SectionHeading>
+            <MessagesPanel messages={messages} variant="full" cap={260} />
+          </section>
         </div>
 
-        <QuizList
-          grouped={grouped}
-          quizzes={quizzes}
-          onSelect={handleSelectQuiz}
-        />
+        <QuizList grouped={grouped} onSelect={handleSelectQuiz} />
       </div>
     </div>
   );
 }
 
-function RangePicker({
-  value,
-  onChange,
-}: {
-  value: "week" | "month" | "year";
-  onChange: (v: "week" | "month" | "year") => void;
-}) {
-  const opts: ("week" | "month" | "year")[] = ["week", "month", "year"];
+function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      className="flex text-xs"
-      style={{ border: "1px solid var(--color-cream-dark)" }}
+    <h2
+      className="text-lg font-700 flex items-center gap-2"
+      style={{ fontFamily: "var(--font-display)", color: "var(--color-ink)" }}
     >
-      {opts.map((o) => (
-        <button
-          key={o}
-          onClick={() => onChange(o)}
-          className="px-3 py-1.5"
-          style={{
-            background: value === o ? "var(--color-ink)" : "transparent",
-            color: value === o ? "var(--color-cream)" : "var(--color-ink-muted)",
-            fontFamily: "var(--font-body)",
-            border: "none",
-            cursor: "pointer",
-            textTransform: "capitalize",
-          }}
-        >
-          {o}
-        </button>
-      ))}
-    </div>
+      {children}
+    </h2>
   );
+}
+
+// Lesson groups can hold several quiz cards; collect them under one anchor
+// (`lesson-{id}`) so the progress panel can scroll to + flash the right spot.
+function groupByLesson(
+  items: { lesson: { id: string; title: string }; quiz: Quiz }[],
+): { lesson: { id: string; title: string }; quizzes: { quiz: Quiz }[] }[] {
+  const seen = new Map<string, { lesson: { id: string; title: string }; quizzes: { quiz: Quiz }[] }>();
+  for (const item of items) {
+    const cur = seen.get(item.lesson.id) ?? {
+      lesson: item.lesson,
+      quizzes: [] as { quiz: Quiz }[],
+    };
+    cur.quizzes.push({ quiz: item.quiz });
+    seen.set(item.lesson.id, cur);
+  }
+  return [...seen.values()];
 }
 
 function QuizList({
@@ -224,7 +182,6 @@ function QuizList({
   onSelect,
 }: {
   grouped: { chapter: { id: string; name: string }; items: { lesson: { id: string; title: string }; quiz: Quiz }[] }[];
-  quizzes: Quiz[];
   onSelect: (q: Quiz) => void;
 }) {
   if (grouped.length === 0) {
@@ -268,7 +225,8 @@ function QuizList({
   return (
     <section>
       <h2
-        className="text-lg font-700 mb-4"
+        id="quiz-list-anchor"
+        className="text-lg font-700 mb-4 flex items-center gap-2"
         style={{
           fontFamily: "var(--font-display)",
           color: "var(--color-ink)",
@@ -278,7 +236,7 @@ function QuizList({
       </h2>
       <div className="flex flex-col gap-8">
         {grouped.map(({ chapter, items }, ci) => (
-          <div key={chapter.id}>
+          <FadeUp key={chapter.id} delay={ci * 0.06}>
             <div className="flex items-center gap-3 mb-4">
               <div
                 className="w-7 h-7 flex items-center justify-center text-xs font-700"
@@ -309,8 +267,8 @@ function QuizList({
               className="flex flex-col gap-3 pl-4"
               style={{ borderLeft: "2px solid var(--color-cream-dark)" }}
             >
-              {items.map(({ lesson: l, quiz }) => (
-                <div key={quiz.id} className="ml-4">
+              {groupByLesson(items).map(({ lesson: l, quizzes: lessonQuizzes }) => (
+                <div key={l.id} id={`lesson-${l.id}`} className="ml-4">
                   <p
                     className="text-xs font-600 uppercase tracking-wider mb-2"
                     style={{
@@ -321,18 +279,25 @@ function QuizList({
                   >
                     {l.title}
                   </p>
-                  <QuizCard quiz={quiz} onClick={() => onSelect(quiz)} />
+                  {lessonQuizzes.map(({ quiz }, qi) => (
+                    <QuizCard
+                      key={quiz.id}
+                      quiz={quiz}
+                      index={qi}
+                      onClick={() => onSelect(quiz)}
+                    />
+                  ))}
                 </div>
               ))}
             </div>
-          </div>
+          </FadeUp>
         ))}
       </div>
     </section>
   );
 }
 
-function QuizCard({ quiz, onClick }: { quiz: Quiz; onClick: () => void }) {
+function QuizCard({ quiz, onClick, index }: { quiz: Quiz; onClick: () => void; index: number }) {
   const cfg = STATUS_CONFIG[quiz.status] ?? STATUS_CONFIG.draft;
   const StatusIcon = (cfg as { icon?: typeof Lock }).icon;
   const isActive = quiz.status === "active";
@@ -346,116 +311,133 @@ function QuizCard({ quiz, onClick }: { quiz: Quiz; onClick: () => void }) {
     : cfg.color;
   const displayBg = isDone ? "#E6F5F5" : cfg.bg;
   return (
-    <div
+    <motion.div
       onClick={onClick}
-      className="flex items-center justify-between p-4 mb-2"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{
+        delay: index * 0.05,
+        duration: 0.3,
+        ease: [0.22, 1, 0.36, 1],
+      }}
+      whileHover={
+        isActive
+          ? { x: -2, y: -2, boxShadow: "4px 4px 0 var(--color-ink)", borderColor: "var(--color-ink)" }
+          : {}
+      }
+      whileTap={isActive ? { scale: 0.99 } : {}}
+      className="flex items-center justify-between p-3 mb-2 md:p-4"
       style={{
         background: "white",
         border: "2px solid var(--color-cream-dark)",
         cursor: isActive ? "pointer" : "default",
-        transition: "all 0.15s",
         boxShadow: "2px 2px 0 var(--color-cream-dark)",
       }}
-      onMouseEnter={(e) => {
-        if (isActive) {
-          (e.currentTarget as HTMLDivElement).style.borderColor = "var(--color-ink)";
-          (e.currentTarget as HTMLDivElement).style.boxShadow = "4px 4px 0 var(--color-ink)";
-          (e.currentTarget as HTMLDivElement).style.transform = "translate(-2px, -2px)";
-        }
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLDivElement).style.borderColor = "var(--color-cream-dark)";
-        (e.currentTarget as HTMLDivElement).style.boxShadow = "2px 2px 0 var(--color-cream-dark)";
-        (e.currentTarget as HTMLDivElement).style.transform = "none";
-      }}
     >
-      <div className="flex items-start gap-3 flex-1">
-        <div className="flex flex-col gap-1 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span
-              className="font-600 text-base"
-              style={{
-                fontFamily: "var(--font-body)",
-                color: "var(--color-ink)",
-              }}
-            >
-              {quiz.title}
-            </span>
-            <span
-              className="text-xs px-2 py-0.5 font-500 flex items-center gap-1"
-              style={{
-                background: displayBg,
-                color: displayColor,
-                border: `1px solid ${displayColor}`,
-                fontFamily: "var(--font-body)",
-              }}
-            >
-              {StatusIcon && <StatusIcon size={10} />}
-              {displayLabel}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span
+            className="font-600 text-base"
+            style={{
+              fontFamily: "var(--font-body)",
+              color: "var(--color-ink)",
+            }}
+          >
+            {quiz.title}
+          </span>
+          <span
+            className="text-xs px-2 py-0.5 font-500 flex items-center gap-1"
+            style={{
+              background: displayBg,
+              color: displayColor,
+              border: `1px solid ${displayColor}`,
+              fontFamily: "var(--font-body)",
+            }}
+          >
+            {StatusIcon && <StatusIcon size={10} />}
+            {displayLabel}
+          </span>
+        </div>
+
+        {/* Schedule — "Closes Mar 14, 9:00 AM" or "Opens Mar 12, 1:00 PM" */}
+        {quiz.scheduledEnd && (
+          <div
+            className="flex items-center gap-1.5 mt-0.5"
+            style={{
+              color:
+                quiz.status === "closed"
+                  ? "var(--color-ink-muted)"
+                  : "var(--color-ink-light)",
+              fontFamily: "var(--font-body)",
+            }}
+          >
+            <Clock size={11} style={{ flexShrink: 0 }} />
+            <span className="text-xs">
+              {quiz.status === "scheduled" && quiz.scheduledStart
+                ? `Opens ${formatSchedule(quiz.scheduledStart)}`
+                : `Closes ${formatSchedule(quiz.scheduledEnd)}`}
             </span>
           </div>
+        )}
 
-          {/* Schedule — "Closes Mar 14, 9:00 AM" or "Opens Mar 12, 1:00 PM" */}
-          {quiz.scheduledEnd && (
-            <div
-              className="flex items-center gap-1.5 mt-0.5"
-              style={{
-                color:
-                  quiz.status === "closed"
-                    ? "var(--color-ink-muted)"
-                    : "var(--color-ink-light)",
-                fontFamily: "var(--font-body)",
-              }}
+        {quiz.bestScore !== null && quiz.bestScore !== undefined && (
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            <span
+              className="text-xs flex items-center gap-1"
+              style={{ color: "var(--color-ink-muted)", fontFamily: "var(--font-body)" }}
             >
-              <Clock size={11} style={{ flexShrink: 0 }} />
-              <span className="text-xs">
-                {quiz.status === "scheduled" && quiz.scheduledStart
-                  ? `Opens ${formatSchedule(quiz.scheduledStart)}`
-                  : `Closes ${formatSchedule(quiz.scheduledEnd)}`}
-              </span>
-            </div>
-          )}
-
-          {quiz.bestScore !== null && quiz.bestScore !== undefined && (
-            <div className="flex items-center gap-1 mt-0.5">
               <Star
                 size={12}
                 style={{ color: "var(--color-amber)" }}
                 fill="var(--color-amber)"
               />
-              <span
-                className="text-xs font-600"
-                style={{
-                  color: "var(--color-ink-muted)",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
+              <span className="font-600" style={{ fontFamily: "var(--font-mono)" }}>
                 Best: {quiz.bestScore}%
               </span>
-              <Clock
-                size={12}
-                style={{ color: "var(--color-ink-muted)", marginLeft: 8 }}
-              />
-              <span
-                className="text-xs"
-                style={{
-                  color: "var(--color-ink-muted)",
-                  fontFamily: "var(--font-body)",
-                }}
-              >
-                {quiz.questionPoolIds.length} questions in pool
-              </span>
-            </div>
-          )}
-        </div>
+            </span>
+            <span
+              className="text-xs flex items-center gap-1"
+              style={{ color: "var(--color-ink-muted)", fontFamily: "var(--font-body)" }}
+            >
+              <Clock size={11} style={{ color: "var(--color-ink-muted)" }} />
+              {quiz.questionPoolIds.length} questions in pool
+            </span>
+          </div>
+        )}
       </div>
+      {quiz.lastScore !== null && quiz.lastScore !== undefined && (
+        <div
+          className="flex flex-col items-center px-4 py-1.5 flex-shrink-0"
+          style={{
+            background: "var(--color-cream)",
+            border: "1px solid var(--color-cream-dark)",
+          }}
+        >
+          <span
+            className="text-[9px] uppercase"
+            style={{
+              color: "var(--color-ink-muted)",
+              fontFamily: "var(--font-mono)",
+              letterSpacing: "0.1em",
+            }}
+          >
+            Last
+          </span>
+          <span
+            className="text-lg font-900 leading-none"
+            style={{ color: "var(--color-ink-muted)", fontFamily: "var(--font-mono)" }}
+          >
+            {quiz.lastScore}%
+          </span>
+        </div>
+      )}
       {isActive && (
         <ChevronRight
           size={18}
           style={{ color: "var(--color-ink-muted)", flexShrink: 0 }}
         />
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -471,6 +453,3 @@ function formatSchedule(iso: string): string {
     return iso;
   }
 }
-
-// Status keys used elsewhere
-void CheckCircle;

@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import DEFAULT_JWT_SECRET, settings
 from .db import close_db, get_db
 from .migrations import run_migrations
-from .routers import assets, quiz_taking, quotes, students, teacher
+from .routers import assets, featured, quiz_taking, quotes, students, teacher
 from .seed_runner import seed_if_empty
 from . import storage
 
@@ -154,3 +154,4 @@ app.include_router(teacher.router)
 app.include_router(assets.router)
 app.include_router(quotes.public_router)
 app.include_router(quotes.router)
+app.include_router(featured.router)

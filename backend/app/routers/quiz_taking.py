@@ -10,7 +10,41 @@ from ..schemas import AnswerCreate, CreateAttempt, now_iso
 
 router = APIRouter(prefix="/api", tags=["quiz-taking"])
 
-WHEEL_VALUES = [1, 2, 3]
+WHEEL_WEIGHTS = {1: 0.1, 2: 0.2, 3: 0.7}
+
+# "Lucky Double" golden spin: ~7% of spins upgrade the attempt. The wheel
+# lands normally, but the attempt either comes with an extra question (when
+# the pool has room) or counts double (when it's already maxed out).
+LUCKY_CHANCE = 0.07
+
+
+def _pick_wheel_result(max_serve: int) -> int:
+    """Weighted wheel result over the values a quiz can actually serve
+    (1..max_serve). Full pools favour more questions: 3 → 70%, 2 → 20%,
+    1 → 10%. With fewer available questions the weights renormalize over
+    the remaining values."""
+    values = [v for v in range(1, max_serve + 1)]
+    weights = [WHEEL_WEIGHTS[v] for v in values]
+    return random.choices(values, weights=weights, k=1)[0]
+
+
+def _roll_lucky() -> str:
+    """`True` when this spin is one of the ~7% lucky golden spins."""
+    return "extra" if random.random() < LUCKY_CHANCE else ""
+
+
+def _effective_serve(wheel_result: int, lucky: str, pool_size: int) -> tuple[int, str]:
+    """Resolve (serve_count, effective_lucky_mode) for a spin.
+
+    A "lucky" spin adds +1 question when the pool has room. When the pool is
+    already maxed there's nothing to add, so the attempt gracefully counts
+    double instead — the lucky spin is never a dud.
+    """
+    if lucky == "extra" and wheel_result < pool_size:
+        return wheel_result + 1, "extra"
+    if lucky == "extra":
+        return wheel_result, "double"
+    return wheel_result, ""
 
 
 async def _pick_serve(db, quiz: dict, wheel_result: int) -> list[dict]:
@@ -113,12 +147,14 @@ async def spin_quiz(
             detail="This quiz has no questions yet — ask your teacher to add some.",
         )
     max_serve = min(3, len(pool_ids))
-    wheel_result = random.choice(list(range(1, max_serve + 1)))
+    wheel_result = _pick_wheel_result(max_serve)
+    serve_n, lucky = _effective_serve(wheel_result, _roll_lucky(), len(pool_ids))
 
-    picked = await _pick_serve(db, quiz, wheel_result)
+    picked = await _pick_serve(db, quiz, serve_n)
     return {
         "wheelResult": wheel_result,
         "maxWheelValue": max_serve,
+        "lucky": lucky,
         "questionsServed": [_served_view(q) for q in picked],
     }
 
@@ -140,18 +176,20 @@ async def create_attempt(
 
     db = get_db()
     quiz = await _load_quiz(payload.quizId)
-    picked = await _pick_serve(db, quiz, payload.wheelResult)
+    lucky = payload.lucky if payload.lucky in ("extra", "double") else ""
+    serve_n, mode = _effective_serve(payload.wheelResult, lucky, len(quiz.get("questionPoolIds", [])))
+    picked = await _pick_serve(db, quiz, serve_n)
     if not picked:
         raise HTTPException(
             status_code=400,
             detail="This quiz has no questions yet — ask your teacher to add some.",
         )
-    if len(picked) != payload.wheelResult:
+    if len(picked) != serve_n:
         raise HTTPException(
             status_code=400,
             detail=(
                 f"This quiz only has {len(picked)} question(s) available, "
-                f"not {payload.wheelResult}."
+                f"not {serve_n}."
             ),
         )
 
@@ -162,6 +200,7 @@ async def create_attempt(
         "userId": student_id,
         "quizId": payload.quizId,
         "wheelResult": payload.wheelResult,
+        "lucky": mode,
         "questionsServed": served,
         "answers": [],
         "score": 0,
@@ -175,6 +214,7 @@ async def create_attempt(
     return {
         "id": str(attempt_id),
         "wheelResult": payload.wheelResult,
+        "lucky": mode,
         "questionsServed": served,
         "total": len(served),
     }
@@ -348,6 +388,12 @@ async def complete_attempt(
     served = attempt.get("questionsServed", [])
     total = len(served)
     score = sum(1 for a in answers if a.get("correct"))
+    # "Lucky Double" attempt: when the golden spin couldn't add a question
+    # (pool already full) the attempt counts double — capped at 100% so
+    # score ≤ total always holds for the reports pipeline.
+    lucky = attempt.get("lucky", "")
+    if lucky == "double":
+        score = min(score * 2, total)
     total_time = sum(float(a.get("timeSpentSeconds", 0.0) or 0.0) for a in answers)
 
     breakdown = []
@@ -395,6 +441,7 @@ async def complete_attempt(
         "score": score,
         "total": total,
         "wheelResult": attempt.get("wheelResult"),
+        "lucky": lucky,
         "totalTimeSpentSeconds": total_time,
         "breakdown": breakdown,
         "completedAt": now_iso(),

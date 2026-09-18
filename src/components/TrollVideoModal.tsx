@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X, Play } from "lucide-react";
 
 interface TrollVideoModalProps {
@@ -10,8 +10,23 @@ export default function TrollVideoModal({ onClose, videoUrl }: TrollVideoModalPr
   const [playing, setPlaying] = useState(Boolean(videoUrl));
   const [countdown, setCountdown] = useState<number | null>(null);
   const [canSkip, setCanSkip] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const hasVideo = Boolean(videoUrl);
+
+  // Autoplay with sound where the browser allows it; fall back to muted
+  // when the policy blocks un-muted playback.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const p = v.play();
+    if (p !== undefined) {
+      p.catch(() => {
+        v.muted = true;
+        v.play().catch(() => {});
+      });
+    }
+  }, [videoUrl]);
 
   useEffect(() => {
     if (playing) {
@@ -86,9 +101,9 @@ export default function TrollVideoModal({ onClose, videoUrl }: TrollVideoModalPr
               }}
             >
               <video
+                ref={videoRef}
                 src={videoUrl!}
                 autoPlay
-                muted
                 playsInline
                 controls
                 className="w-full h-full object-contain"

@@ -14,6 +14,7 @@ from ..auth import (
 from ..config import media_url, settings
 from ..db import get_db
 from ..ratelimit import limit
+from .featured import WALL_OF_SHAME_CONFIG_ID
 from ..schemas import (
     AssignRequest,
     ChapterCreate,
@@ -496,6 +497,27 @@ async def update_question(question_id: str, payload: QuestionUpdate, teacher_id:
         updates["trollVideoId"] = await _resolve_asset_reference(
             updates["trollVideoId"], kind="trollVideoId"
         )
+    # Moving the question to a different primary quiz: reconcile pool
+    # membership so the old quiz stops drawing it and the new one serves it.
+    # (A question may still be pulled into other quizzes' pools on top of its
+    # primary quiz — this only re-parents the primary ownership.)
+    if "quizId" in updates and updates["quizId"] != existing.get("quizId"):
+        new_quiz_id = updates["quizId"]
+        if not ObjectId.is_valid(new_quiz_id):
+            raise HTTPException(status_code=400, detail="Invalid quiz id")
+        target_quiz = await db.quizzes.find_one({"_id": ObjectId(new_quiz_id)})
+        if target_quiz is None:
+            raise HTTPException(status_code=400, detail="Target quiz not found")
+        old_quiz_id = existing.get("quizId")
+        if old_quiz_id and ObjectId.is_valid(old_quiz_id):
+            await db.quizzes.update_one(
+                {"_id": ObjectId(old_quiz_id)},
+                {"$pull": {"questionPoolIds": question_id}},
+            )
+        await db.quizzes.update_one(
+            {"_id": ObjectId(new_quiz_id)},
+            {"$addToSet": {"questionPoolIds": question_id}},
+        )
     if updates:
         await db.questions.update_one({"_id": existing["_id"]}, {"$set": updates})
     updated = await db.questions.find_one({"_id": existing["_id"]})
@@ -513,13 +535,30 @@ async def delete_question(question_id: str, teacher_id: str = Depends(get_curren
     existing = await db.questions.find_one({"_id": ObjectId(question_id)})
     if existing is None:
         raise HTTPException(status_code=404, detail="Question not found")
-    # Dependency check: is it attached to any non-archived quiz?
-    qz = await db.quizzes.find_one({"questionPoolIds": question_id, "status": {"$ne": "archived"}})
-    if qz:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot delete — this question is still in the quiz \"{qz.get('title')}\". Remove it from the quiz first.",
-        )
+    # Dependency check: is it attached to any non-archived quiz? A question
+    # can be shared across several quizzes' pools, so block while ANY quiz
+    # still references it.
+    blocking_quizzes = []
+    async for q in db.quizzes.find(
+        {"questionPoolIds": question_id, "status": {"$ne": "archived"}}
+    ):
+        blocking_quizzes.append(q.get("title", "Untitled"))
+    if blocking_quizzes:
+        if len(blocking_quizzes) == 1:
+            detail = (
+                f"Cannot delete — this question is still in the quiz "
+                f"\"{blocking_quizzes[0]}\". Remove it from the quiz first."
+            )
+        else:
+            listed = ", ".join(
+                f'"{t}"' for t in blocking_quizzes[:3]
+            ) + ("…" if len(blocking_quizzes) > 3 else "")
+            detail = (
+                f"Cannot delete — this question is shared by "
+                f"{len(blocking_quizzes)} quizzes: {listed}. "
+                f"Remove it from every quiz first."
+            )
+        raise HTTPException(status_code=409, detail=detail)
     await db.questions.delete_one({"_id": existing["_id"]})
     return {"ok": True}
 
@@ -624,6 +663,75 @@ async def unassign_one(student_id: str, payload: dict, teacher_id: str = Depends
         {"$pull": {"assignedQuizIds": quiz_id}},
     )
     return {"ok": True}
+
+
+@router.post("/students/{student_id}/check-in")
+async def check_in_student(
+    student_id: str,
+    payload: dict | None = None,
+    teacher_id: str = Depends(get_current_teacher),
+):
+    """Mark (or unmark) a student as 'checked in with' from the dashboard queue.
+
+    The timestamp is stored on the student doc so the dashboard can fold
+    handled rows out of the flagged lists and show a "checked in" trail.
+    """
+    db = get_db()
+    try:
+        student = await db.students.find_one({"_id": ObjectId(student_id)})
+    except Exception:
+        raise HTTPException(status_code=404, detail="Student not found")
+    if student is None:
+        raise HTTPException(status_code=404, detail="Student not found")
+    checked = bool((payload or {}).get("checked", True))
+    checked_in_at = now_iso() if checked else None
+    await db.students.update_one(
+        {"_id": student["_id"]},
+        {"$set": {"checkedInAt": checked_in_at}},
+    )
+    return {"ok": True, "checked": checked, "checkedInAt": checked_in_at}
+
+
+@router.get("/wall-of-shame")
+async def wall_of_shame(teacher_id: str = Depends(get_current_teacher)):
+    """List of student ids hidden from the landing-page Wall of Shame."""
+    db = get_db()
+    conf = await db.config.find_one({"_id": WALL_OF_SHAME_CONFIG_ID})
+    return {"hiddenStudentIds": (conf or {}).get("hiddenStudentIds", [])}
+
+
+@router.post("/students/{student_id}/wall-of-shame")
+async def toggle_wall_of_shame(
+    student_id: str,
+    payload: dict | None = None,
+    teacher_id: str = Depends(get_current_teacher),
+):
+    """Hide (or unhide) a student from the public Wall of Shame quip."""
+    db = get_db()
+    try:
+        student = await db.students.find_one({"_id": ObjectId(student_id)})
+    except Exception:
+        student = None
+    if student is None:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    hidden = bool((payload or {}).get("hidden", True))
+    await db.config.update_one(
+        {"_id": WALL_OF_SHAME_CONFIG_ID},
+        {"$setOnInsert": {"hiddenStudentIds": []}},
+        upsert=True,
+    )
+    if hidden:
+        await db.config.update_one(
+            {"_id": WALL_OF_SHAME_CONFIG_ID},
+            {"$addToSet": {"hiddenStudentIds": student_id}},
+        )
+    else:
+        await db.config.update_one(
+            {"_id": WALL_OF_SHAME_CONFIG_ID},
+            {"$pull": {"hiddenStudentIds": student_id}},
+        )
+    return {"ok": True, "hidden": hidden}
 
 
 # ─── Messages ─────────────────────────────────────────────────────────────────

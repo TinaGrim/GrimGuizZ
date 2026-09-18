@@ -20,8 +20,9 @@ export default function MessagesPanel({ messages, variant = "full", cap = 200 }:
         background: isCompact ? "var(--color-ink)" : "white",
         border: isCompact ? "2px solid var(--color-amber)" : "2px solid var(--color-cream-dark)",
         boxShadow: isCompact ? "4px 4px 0 var(--color-amber-dark)" : "none",
-        // §5.2: capped height on mobile variant — scrollable, not full-page.
-        maxHeight: isCompact ? `${cap}px` : undefined,
+        // Capped height — scrollable, not full-page (fits both variants; the
+        // compact one defaults to 200px, we pass an explicit cap on mobile).
+        maxHeight: cap ? `${cap}px` : undefined,
         overflow: "auto",
       }}
     >

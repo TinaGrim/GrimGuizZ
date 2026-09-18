@@ -29,6 +29,7 @@ export interface Quiz {
   trollVideoId?: string | null;
   timerMinutes?: number | null;
   bestScore?: number | null;
+  lastScore?: number | null;
 }
 
 export interface Question {

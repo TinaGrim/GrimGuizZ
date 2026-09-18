@@ -189,6 +189,11 @@ class QuestionReveal(QuestionServed):
 class CreateAttempt(BaseModel):
     quizId: str
     wheelResult: Literal[1, 2, 3]
+    # "Lucky Double" golden-spin upgrade granted by /spin (~7% of spins),
+    # echoed back so create_attempt can re-derive the served set identically.
+    # "extra"  → one more question than the wheel landed on (when pool allows)
+    # "double" → this attempt counts double (when the pool is already maxed)
+    lucky: Optional[Literal["extra", "double"]] = None
     # The student is identified by the bearer token; `studentId` in the
     # payload is ignored (and rejected if it doesn't match the token) for
     # defence in depth. The served questions are picked server-side from

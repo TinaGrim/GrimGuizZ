@@ -1,15 +1,30 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate, useParams } from "react-router";
+import { motion, AnimatePresence } from "motion/react";
 import { useApp } from "../store/AppContext";
 import { QuizTaking } from "../api/client";
 import TrollVideoModal from "../components/TrollVideoModal";
 import MathText from "../components/MathText";
-import { CheckCircle, XCircle, Clock } from "lucide-react";
+import { CheckCircle, XCircle, Clock, Volume2, VolumeX } from "lucide-react";
 import type { QuestionServed } from "../data/types";
+import { Sounds } from "../data/sounds";
 
 type OptionState = "default" | "selected" | "correct" | "wrong";
 
 const OPTION_COUNT = 5;
+
+// Display positions get a fresh random order per question so the correct
+// answer's letter (A–E) changes every time instead of being fixed. Only the
+// *display* order is shuffled — submission remaps back to the server's
+// original index so grading and the results breakdown stay correct.
+function shuffledOrder(n: number): number[] {
+  const order = Array.from({ length: n }, (_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
+}
 
 function formatTime(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -27,6 +42,7 @@ export default function QuestionScreen() {
     currentTries,
     sessionAnswers,
     attemptId,
+    lucky,
     submitAnswer,
     advanceQuestion,
     completeQuiz,
@@ -48,8 +64,8 @@ export default function QuestionScreen() {
   // round-trip lands. (Previous behaviour: button hid but nothing else
   // moved until the response came back — felt broken on slow links.)
   const [checking, setChecking] = useState(false);
-  const [shakeKey, setShakeKey] = useState(0);
   const [advancing, setAdvancing] = useState(false);
+  const [muted, setMuted] = useState(Sounds.isMuted());
   // User can tap to advance as soon as the verdict lands. We auto-advance
   // after a short pause so the snack is readable but the quiz still feels
   // snappy.
@@ -74,6 +90,8 @@ export default function QuestionScreen() {
   // state, never a stale closure.
   const sessionAnswersRef = useRef(sessionAnswers);
   sessionAnswersRef.current = sessionAnswers;
+  const luckyRef = useRef(lucky);
+  luckyRef.current = lucky;
   const questionsServedRef = useRef(questionsServed);
   questionsServedRef.current = questionsServed;
   const completeQuizRef = useRef(completeQuiz);
@@ -84,6 +102,15 @@ export default function QuestionScreen() {
 
   const question: QuestionServed | undefined = questionsServed[currentQuestionIndex];
 
+  // New random display order whenever the question changes. Display position
+  // `i` renders `question.options[displayOrder[i]]`; submission maps that
+  // back to the original index before the server grades it.
+  const displayOrder = useMemo(
+    () => shuffledOrder(question?.options.length ?? OPTION_COUNT),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [question?.questionId],
+  );
+
   // Per-question timer limit in seconds (null when no limit is set).
   const timeLimitSeconds = question?.timeLimitMinutes
     ? question.timeLimitMinutes * 60
@@ -91,12 +118,16 @@ export default function QuestionScreen() {
 
   // Locally-known result used to paint the results page instantly while the
   // `complete` call syncs in the background. Score/total mirror the server's
-  // logic (one point per answered-correctly question, total = served count).
+  // logic (one point per answered-correctly question, total = served count);
+  // a "Lucky Double" attempt doubles the score, capped at 100%.
   const optimisticResult = () => {
     const answers = sessionAnswersRef.current;
+    const total = questionsServedRef.current.length;
+    const correct = answers.filter((a) => a.correct).length;
     return {
-      score: answers.filter((a) => a.correct).length,
-      total: questionsServedRef.current.length,
+      score: luckyRef.current === "double" ? Math.min(correct * 2, total) : correct,
+      total,
+      lucky: luckyRef.current,
       answers: answers.map((a) => ({
         questionId: a.questionId,
         chosenOptionIndex: a.chosenOptionIndex,
@@ -219,6 +250,13 @@ export default function QuestionScreen() {
     attemptId,
   ]);
 
+  const toggleMute = () => {
+    const next = !muted;
+    if (!next) Sounds.click();
+    Sounds.setMuted(next);
+    setMuted(next);
+  };
+
   const handleSubmit = useCallback(async () => {
     if (selectedIndexRef.current === null || submitted || !question) return;
     setSubmitted(true);
@@ -228,7 +266,10 @@ export default function QuestionScreen() {
     setShowNext(false);
 
     // Phase A instrumentation: per-question choice history + time-on-question.
-    const pickedIndex = selectedIndexRef.current;
+    // Chosen index is stored in the *server's* option order (not the shuffled
+    // display order) so grading + results line up with the real options.
+    const pickedDisplay = selectedIndexRef.current;
+    const pickedIndex = displayOrder[pickedDisplay];
     choicesRef.current.push(pickedIndex);
     const elapsedMs = Date.now() - questionShownAtRef.current;
     // Reset the per-try clock so subsequent retries only charge for the
@@ -268,6 +309,7 @@ export default function QuestionScreen() {
     }
 
     if (correct) {
+      Sounds.correct();
       newStates[selectedIndexRef.current] = "correct";
       optionStatesRef.current = newStates;
       setOptionStates(newStates);
@@ -285,12 +327,13 @@ export default function QuestionScreen() {
       newStates[selectedIndexRef.current] = "wrong";
       optionStatesRef.current = newStates;
       setOptionStates(newStates);
-      setShakeKey((k) => k + 1);
 
       if (shouldTroll) {
+        Sounds.troll();
         setTrollVideoUrl(trollVideoUrl ?? null);
         setTimeout(() => setShowTroll(true), 400);
       } else {
+        Sounds.wrong();
         const msg =
           tries === 1
             ? "Not quite — try a different answer."
@@ -311,6 +354,7 @@ export default function QuestionScreen() {
     completeQuiz,
     navigate,
     advance,
+    displayOrder,
   ]);
 
   const handleTrollClose = () => {
@@ -337,6 +381,7 @@ export default function QuestionScreen() {
     if (selectedIndexRef.current !== null) {
       handleSubmit();
     } else {
+      Sounds.timeUp();
       setFeedback({ type: "wrong", message: "Time's up — no answer submitted." });
       setTimeout(() => advance(), 900);
     }
@@ -385,20 +430,26 @@ export default function QuestionScreen() {
               className="flex-1 mx-6 h-2 overflow-hidden"
               style={{ background: "rgba(255,255,255,0.1)" }}
             >
-              <div
-                className="h-full transition-all duration-500"
-                style={{
+              <motion.div
+                className="h-full"
+                style={{ background: "var(--color-amber)" }}
+                initial={false}
+                animate={{
                   width: `${((currentQuestionIndex + 1) / questionsServed.length) * 100}%`,
-                  background: "var(--color-amber)",
                 }}
+                transition={{ type: "spring", stiffness: 90, damping: 22 }}
               />
             </div>
 
             <div className="flex gap-1.5">
               {questionsServed.map((_, i) => (
-                <div
+                <motion.div
                   key={i}
                   className="rounded-full"
+                  layout
+                  initial={false}
+                  animate={{ scale: i === currentQuestionIndex ? 1.3 : 1 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 20 }}
                   style={{
                     width: 10,
                     height: 10,
@@ -408,11 +459,28 @@ export default function QuestionScreen() {
                         : i === currentQuestionIndex
                           ? "var(--color-amber)"
                           : "rgba(255,255,255,0.15)",
-                    transition: "background 0.3s",
                   }}
                 />
               ))}
             </div>
+
+            <button
+              onClick={toggleMute}
+              aria-label={muted ? "Unmute sounds" : "Mute sounds"}
+              title={muted ? "Unmute sounds" : "Mute sounds"}
+              className="ml-3 flex items-center justify-center shrink-0"
+              style={{
+                width: 32,
+                height: 32,
+                background: muted ? "rgba(255,255,255,0.08)" : "none",
+                border: "2px solid rgba(255,255,255,0.2)",
+                cursor: "pointer",
+                color: muted ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.7)",
+                transition: "all 0.15s",
+              }}
+            >
+              {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            </button>
           </div>
 
           <div className="max-w-3xl mx-auto flex items-center gap-2 mt-2">
@@ -426,9 +494,13 @@ export default function QuestionScreen() {
               Attempts:
             </span>
             {[1, 2, 3].map((n) => (
-              <div
+              <motion.div
                 key={n}
-                className="rounded-full transition-all duration-200"
+                className="rounded-full"
+                layout
+                initial={false}
+                animate={{ scale: n <= currentTries ? 1.25 : 1 }}
+                transition={{ type: "spring", stiffness: 400, damping: 20 }}
                 style={{
                   width: 8,
                   height: 8,
@@ -442,7 +514,36 @@ export default function QuestionScreen() {
           </div>
         </div>
 
+        {lucky && (
+          <div
+            className="max-w-3xl mx-auto w-full mt-4 flex items-center gap-2 px-4 py-2.5"
+            style={{
+              background: "#2A1800",
+              border: "2px solid var(--color-amber)",
+              boxShadow: "4px 4px 0 var(--color-amber)",
+              color: "var(--color-amber)",
+              fontFamily: "var(--font-display)",
+              fontWeight: 700,
+              letterSpacing: "0.04em",
+            }}
+          >
+            <span style={{ filter: "drop-shadow(0 0 8px rgba(240,165,0,0.8))" }}>
+              🎁
+            </span>
+            <span className="text-sm">LUCKY DOUBLE</span>
+          </div>
+        )}
+
         <div className="flex-1 max-w-3xl mx-auto w-full px-6 py-8 flex flex-col gap-6">
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div
+              key={question.questionId}
+              className="flex flex-col gap-6"
+              initial={{ opacity: 0, x: 28 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -28 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+            >
           {question.imageUrl && (
             <div
               className="w-full overflow-hidden"
@@ -521,33 +622,46 @@ export default function QuestionScreen() {
             </div>
           )}
 
-          <div key={shakeKey} className="flex flex-col gap-3">
-            {question.options.map((option, i) => {
+          <div key={question.questionId} className="flex flex-col gap-3">
+            {question.options.map((_, i) => {
+              const option = question.options[displayOrder[i]] ?? "";
               const state = optionStates[i] ?? "default";
               // Lock options that are already known-wrong from a prior try,
               // and lock all options briefly while a submit is in flight.
               const isLocked = state === "wrong" || state === "correct";
               const isDisabled = isLocked || (submitted && state === "default");
               return (
-                <div
-                  key={i}
-                  onClick={() => {
-                    if (isDisabled || submitted) return;
-                    selectedIndexRef.current = i;
-                    setSelectedOption(i);
-                    const next = Array(OPTION_COUNT).fill(
-                      "default",
-                    ) as OptionState[];
-                    // Preserve any prior "wrong" markings so the user can't
-                    // re-pick the same wrong answer.
-                    for (let k = 0; k < OPTION_COUNT; k++) {
-                      if (optionStates[k] === "wrong") next[k] = "wrong";
+<motion.div
+                    key={i}
+                    onClick={() => {
+                      if (isDisabled || submitted) return;
+                      Sounds.click();
+                      selectedIndexRef.current = i;
+                      setSelectedOption(i);
+                      const next = Array(OPTION_COUNT).fill(
+                        "default",
+                      ) as OptionState[];
+                      // Preserve any prior "wrong" markings so the user can't
+                      // re-pick the same wrong answer.
+                      for (let k = 0; k < OPTION_COUNT; k++) {
+                        if (optionStates[k] === "wrong") next[k] = "wrong";
+                      }
+                      next[i] = "selected";
+                      optionStatesRef.current = next;
+                      setOptionStates(next);
+                    }}
+                    className={`quiz-option flex items-center gap-4 p-4 ${isDisabled ? "disabled" : ""}`}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={
+                      state === "wrong"
+                        ? { opacity: 1, y: 0, x: [0, -8, 8, -5, 5, 0] }
+                        : { opacity: 1, y: 0, x: 0 }
                     }
-                    next[i] = "selected";
-                    optionStatesRef.current = next;
-                    setOptionStates(next);
-                  }}
-                  className={`quiz-option flex items-center gap-4 p-4 ${state === "wrong" ? "animate-shake" : ""} ${isDisabled ? "disabled" : ""}`}
+                    transition={
+                      state === "wrong"
+                        ? { duration: 0.4, ease: "easeInOut" }
+                        : { type: "spring", stiffness: 500, damping: 32, delay: i * 0.05 }
+                    }
                   style={{
                     position: "relative",
                     ...(state === "selected" && {
@@ -617,15 +731,21 @@ export default function QuestionScreen() {
                       style={{ color: "var(--color-ember)", flexShrink: 0 }}
                     />
                   )}
-                </div>
+                </motion.div>
               );
             })}
           </div>
+            </motion.div>
+          </AnimatePresence>
 
-          {(checking || feedback) && (
-            <div
-              key={feedback?.message ?? "checking"}
-              className="flex items-center justify-between gap-3 px-5 py-3.5 animate-slide-up"
+          <AnimatePresence initial={false}>
+            {(checking || feedback) && (
+            <motion.div
+              className="flex items-center justify-between gap-3 px-5 py-3.5"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8, transition: { duration: 0.15 } }}
+              transition={{ type: "spring", stiffness: 380, damping: 26 }}
               style={{
                 background: checking
                   ? "var(--color-cream)"
@@ -685,8 +805,25 @@ export default function QuestionScreen() {
                   {checking ? "Checking your answer…" : feedback?.message}
                 </span>
               </div>
+              {!showNext && feedback?.type === "correct" && (
+                <motion.span
+                  className="shrink-0 text-sm font-900"
+                  initial={{ scale: 0.4, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: "spring", stiffness: 500, damping: 15 }}
+                  style={{
+                    color: "var(--color-teal-dark)",
+                    fontFamily: "var(--font-mono)",
+                    background: "#E6F5F5",
+                    border: "2px solid var(--color-teal-dark)",
+                    padding: "2px 8px",
+                  }}
+                >
+                  +1
+                </motion.span>
+              )}
               {showNext && (
-                <button
+                <motion.button
                   onClick={handleNext}
                   className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-sm font-700"
                   style={{
@@ -698,33 +835,18 @@ export default function QuestionScreen() {
                     cursor: "pointer",
                     letterSpacing: "0.02em",
                   }}
-                  onMouseDown={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.transform =
-                      "translate(2px, 2px)";
-                    (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                      "none";
-                  }}
-                  onMouseUp={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.transform =
-                      "none";
-                    (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                      "2px 2px 0 var(--color-ember)";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.transform =
-                      "none";
-                    (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                      "2px 2px 0 var(--color-ember)";
-                  }}
+                  whileHover={{ y: -1 }}
+                  whileTap={{ y: 2, boxShadow: "none" }}
                 >
                   Next →
-                </button>
+                </motion.button>
               )}
-            </div>
-          )}
+            </motion.div>
+            )}
+          </AnimatePresence>
 
           {!submitted && (
-            <button
+            <motion.button
               onClick={handleSubmit}
               disabled={selectedOption === null}
               className="w-full py-4 text-base font-700"
@@ -748,24 +870,11 @@ export default function QuestionScreen() {
                 transition: "all 0.15s",
                 letterSpacing: "0.02em",
               }}
-              onMouseEnter={(e) => {
-                if (selectedOption !== null) {
-                  (e.currentTarget as HTMLButtonElement).style.transform =
-                    "translate(-2px, -2px)";
-                  (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                    "6px 6px 0 var(--color-ember)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.transform = "none";
-                (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                  selectedOption !== null
-                    ? "4px 4px 0 var(--color-ember)"
-                    : "none";
-              }}
+              whileHover={selectedOption !== null ? { y: -2, boxShadow: "6px 6px 0 var(--color-ember)" } : {}}
+              whileTap={selectedOption !== null ? { y: 2, boxShadow: "2px 2px 0 var(--color-ember)" } : {}}
             >
               Submit Answer
-            </button>
+            </motion.button>
           )}
         </div>
       </div>

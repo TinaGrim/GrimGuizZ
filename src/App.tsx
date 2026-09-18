@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { RouterProvider } from "react-router";
+import { MotionConfig } from "motion/react";
 import { AppProvider } from "./store/AppContext";
 import { ConfirmHost } from "./components/ConfirmDialog";
 import { warmup } from "./api/client";
@@ -38,9 +39,11 @@ function KeepAlive() {
 export default function App() {
   return (
     <AppProvider>
-      <KeepAlive />
-      <ConfirmHost />
-      <RouterProvider router={router} />
+      <MotionConfig reducedMotion="user">
+        <KeepAlive />
+        <ConfirmHost />
+        <RouterProvider router={router} />
+      </MotionConfig>
     </AppProvider>
   );
 }

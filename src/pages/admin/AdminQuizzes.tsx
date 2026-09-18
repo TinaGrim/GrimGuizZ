@@ -277,6 +277,21 @@ const [qTimeLimit, setQTimeLimit] = useState("");
       .flatMap((q) => q.questionPoolIds ?? []),
   );
   const lessonQuestions = questions.filter((q) => lessonQuestionIds.has(q.id));
+  // Questions owned by quizzes under a different lesson — reusable here via
+  // the pool (a question can live in several quizzes' pools).
+  const otherLessonQuestions = questions.filter(
+    (q) => !lessonQuestionIds.has(q.id),
+  );
+
+  // Short label for a question's owning lesson, so reusing across lessons is
+  // readable in the picker: "[Linear Equations] What is 2x + 3?"
+  const questionLessonLabel = (questionId: string): string | null => {
+    const q = questions.find((qq) => qq.id === questionId);
+    if (!q) return null;
+    const qz = quizzes.find((z) => z.id === q.quizId);
+    if (!qz) return null;
+    return lessons.find((l) => l.id === qz.lessonId)?.title ?? null;
+  };
 
   const draftByKey = (key: string) => form.drafts.find((d) => d.key === key);
 
@@ -768,6 +783,10 @@ const openEditPoolOverlay = (slotKey: number) => {
       .flatMap((q) => q.questionPoolIds ?? []),
   );
   const editLessonQuestions = questions.filter((q) => editLessonQuestionIds.has(q.id));
+  // Questions from other lessons — reusable in this quiz's pool.
+  const editOtherLessonQuestions = questions.filter(
+    (q) => !editLessonQuestionIds.has(q.id),
+  );
 
   // ─── Render helpers (shared between create + edit forms) ────────────────
 
@@ -1314,7 +1333,7 @@ const renderStatusBlock = (
                   letterSpacing: "0.1em",
                 }}
               >
-                Questions (optional — add or pick from the selected lesson)
+                Question (option)
               </label>
             </div>
 
@@ -1375,11 +1394,25 @@ const renderStatusBlock = (
                           [new] {draftByKey(slot.value)!.prompt}
                         </option>
                       )}
-                    {lessonQuestions.map((q) => (
-                      <option key={q.id} value={q.id}>
-                        {q.prompt}
-                      </option>
-                    ))}
+                    <optgroup label="From this lesson">
+                      {lessonQuestions.map((q) => (
+                        <option key={q.id} value={q.id}>
+                          {q.prompt}
+                        </option>
+                      ))}
+                    </optgroup>
+                    {otherLessonQuestions.length > 0 && (
+                      <optgroup label="From other lessons (reuse)">
+                        {otherLessonQuestions.map((q) => (
+                          <option key={q.id} value={q.id}>
+                            {questionLessonLabel(q.id)
+                              ? `[${questionLessonLabel(q.id)}] `
+                              : ""}
+                            {q.prompt}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                     {form.drafts
                       .filter((d) => d.key !== slot.value)
                       .map((d) => (
@@ -1430,10 +1463,8 @@ const renderStatusBlock = (
               }}
             >
               {form.lessonId
-                ? `Showing ${lessonQuestions.length} existing question${
-                    lessonQuestions.length === 1 ? "" : "s"
-                  } on the selected lesson. Click "Add" to author a new one — it'll be created when you save.`
-                : "Pick a lesson to populate the question list."}
+                ? `Showing ${lessonQuestions.length} question${lessonQuestions.length === 1 ? "" : "s"} from this lesson${otherLessonQuestions.length > 0 ? ` + ${otherLessonQuestions.length} from other lessons` : ""}.`
+                : "Pick a lesson first."}
             </p>
           </div>
 
@@ -1555,7 +1586,7 @@ const renderStatusBlock = (
                             letterSpacing: "0.1em",
                           }}
                         >
-                          Questions (optional — edit the selected lesson&apos;s pool)
+                          Question (option)
                         </label>
 
                         <div className="flex flex-col gap-2">
@@ -1596,11 +1627,25 @@ const renderStatusBlock = (
                                       [new] {editDraftByKey(slot.value)!.prompt}
                                     </option>
                                   )}
-                                {editLessonQuestions.map((qq) => (
-                                  <option key={qq.id} value={qq.id}>
-                                    {qq.prompt}
-                                  </option>
-                                ))}
+                                <optgroup label="From this lesson">
+                                  {editLessonQuestions.map((qq) => (
+                                    <option key={qq.id} value={qq.id}>
+                                      {qq.prompt}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                                {editOtherLessonQuestions.length > 0 && (
+                                  <optgroup label="From other lessons (reuse)">
+                                    {editOtherLessonQuestions.map((qq) => (
+                                      <option key={qq.id} value={qq.id}>
+                                        {questionLessonLabel(qq.id)
+                                          ? `[${questionLessonLabel(qq.id)}] `
+                                          : ""}
+                                        {qq.prompt}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
                                 {editDrafts
                                   .filter((d) => d.key !== slot.value)
                                   .map((d) => (
@@ -1651,10 +1696,8 @@ const renderStatusBlock = (
                           }}
                         >
                           {editLessonId
-                            ? `Showing ${editLessonQuestions.length} existing question${
-                                editLessonQuestions.length === 1 ? "" : "s"
-                              } on the selected lesson. Click "Add" to author a new one — it'll be created when you save.`
-                            : "Pick a lesson to populate the question list."}
+                            ? `Showing ${editLessonQuestions.length} question${editLessonQuestions.length === 1 ? "" : "s"} from this lesson${editOtherLessonQuestions.length > 0 ? ` + ${editOtherLessonQuestions.length} from other lessons` : ""}.`
+                            : "Pick a lesson first."}
                         </p>
                       </div>
 
@@ -2116,7 +2159,7 @@ const renderStatusBlock = (
                   letterSpacing: "0.1em",
                 }}
               >
-                <ImageIcon size={11} /> Image (optional — uploads are 16:9 cropped)
+                <ImageIcon size={11} /> Image (optional)
               </label>
               <div className="flex items-center gap-2">
                 <label
@@ -2220,7 +2263,7 @@ const renderStatusBlock = (
                   letterSpacing: "0.1em",
                 }}
               >
-                <Video size={11} /> Video (optional — plays when a student gets this wrong 3×)
+                <Video size={11} /> Video (optional)
               </label>
               <div className="flex items-center gap-2">
                 <label
@@ -2537,7 +2580,7 @@ const renderStatusBlock = (
                   letterSpacing: "0.1em",
                 }}
               >
-                <ImageIcon size={11} /> Image (optional — uploads are 16:9 cropped)
+                <ImageIcon size={11} /> Image (optional)
               </label>
               <div className="flex items-center gap-2">
                 <label
@@ -2641,7 +2684,7 @@ const renderStatusBlock = (
                   letterSpacing: "0.1em",
                 }}
               >
-                <Video size={11} /> Video (optional — plays when a student gets this wrong 3×)
+                <Video size={11} /> Video (optional)
               </label>
               <div className="flex items-center gap-2">
                 <label

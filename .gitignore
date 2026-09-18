@@ -13,10 +13,13 @@ logs/
 .tmp-*
 
 # Python venv (don't commit binaries; recreate on each host).
-backend/.venv/
+backend/.venv*/
 **/__pycache__/
 *.pyc
 *.pyo
+
+# Generated tool caches (motion-dev docs index, etc.).
+docs/*.db
 
 # Local uploads (Render + Vercel need persistent storage, not the
 # repo. The seed flow + media library keep the demo working; new

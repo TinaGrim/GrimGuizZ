@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useApp } from "../../store/AppContext";
 import { Teacher, type Asset } from "../../api/client";
 import { useConfirm } from "../../components/ConfirmDialog";
@@ -17,6 +17,7 @@ import {
   ChevronUp,
   X,
   Upload,
+  Share2,
 } from "lucide-react";
 import type { Question } from "../../data/types";
 
@@ -136,6 +137,20 @@ export default function AdminQuestions() {
   const visibleQuizIds = filterQuizId === "all" ? scopeQuizIds : new Set([filterQuizId]);
 
   const filtered = questions.filter((q) => visibleQuizIds.has(q.quizId));
+
+  // Inverse map: question id → titles of every quiz whose pool references it.
+  // A question can be shared across several quizzes, so this surfaces reuse
+  // (the primary `quizId` drives the filter, but the pool membership is what
+  // actually serves it).
+  const questionUsage = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const qz of quizzes) {
+      for (const qid of qz.questionPoolIds ?? []) {
+        m.set(qid, [...(m.get(qid) ?? []), qz.title]);
+      }
+    }
+    return m;
+  }, [quizzes]);
 
   const handleFile = async (file: File) => {
     setUploading(true);
@@ -411,7 +426,7 @@ export default function AdminQuestions() {
                   letterSpacing: "0.1em",
                 }}
               >
-                <ImageIcon size={11} /> Image (optional — uploads are 16:9 cropped)
+                <ImageIcon size={11} /> Image (optional)
               </label>
               <div className="flex items-center gap-2">
                 <label
@@ -516,7 +531,7 @@ export default function AdminQuestions() {
                   letterSpacing: "0.1em",
                 }}
               >
-                <Video size={11} /> Troll video (optional — plays when a student gets this question wrong 3×)
+                <Video size={11} /> Troll video (optional)
               </label>
               <div className="flex items-center gap-2">
                 <select
@@ -644,7 +659,7 @@ export default function AdminQuestions() {
                   letterSpacing: "0.1em",
                 }}
               >
-                <Clock size={11} /> Time limit (optional — counts down on the student&apos;s screen)
+                <Clock size={11} /> Time limit (optional)
               </label>
               <select
                 value={form.timeLimitMinutes}
@@ -929,6 +944,26 @@ export default function AdminQuestions() {
                       }}
                     >
                       {quiz.title}
+                    </span>
+                  )}
+                  {(questionUsage.get(q.id) ?? []).filter(
+                    (t) => t !== quiz?.title,
+                  ).length > 0 && (
+                    <span
+                      className="text-xs font-500 px-2 py-0.5 mb-1.5 ml-1 inline-block"
+                      style={{
+                        background: "rgba(240,165,0,0.15)",
+                        color: "#8a5a00",
+                        fontFamily: "var(--font-body)",
+                        border: "1px solid rgba(240,165,0,0.5)",
+                      }}
+                      title="This question is shared with other quizzes — edits apply everywhere it is used."
+                    >
+                      <Share2 size={11} className="inline mr-1 -mt-0.5" />
+                      Shared — also in{" "}
+                      {(questionUsage.get(q.id) ?? [])
+                        .filter((t) => t !== quiz?.title)
+                        .join(" · ")}
                     </span>
                   )}
                   <div className="flex items-center flex-wrap gap-1.5 mb-1.5">
@@ -1304,7 +1339,7 @@ export default function AdminQuestions() {
                           letterSpacing: "0.1em",
                         }}
                       >
-                        <Video size={11} /> Troll video (optional — plays when this question is missed 3×)
+                        <Video size={11} /> Troll video (optional)
                       </label>
                       <div className="flex items-center gap-2">
                         <select

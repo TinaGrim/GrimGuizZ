@@ -23,11 +23,9 @@ export default function AdminCategories() {
   } = useApp();
   const { confirm } = useConfirm();
   const [newName, setNewName] = useState("");
-  const [newDesc, setNewDesc] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
-  const [editDesc, setEditDesc] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -37,10 +35,9 @@ export default function AdminCategories() {
     setBusy(true);
     setError("");
     try {
-      await Teacher.createChapter({ name: newName.trim(), description: newDesc.trim() });
+      await Teacher.createChapter({ name: newName.trim() });
       await refreshChapters();
       setNewName("");
-      setNewDesc("");
       setShowForm(false);
     } catch (e) {
       setError((e as Error).message);
@@ -66,10 +63,9 @@ export default function AdminCategories() {
     }
   };
 
-  const startEdit = (id: string, name: string, description: string) => {
+  const startEdit = (id: string, name: string) => {
     setEditing(id);
     setEditName(name);
-    setEditDesc(description ?? "");
   };
 
   const saveEdit = async () => {
@@ -79,7 +75,6 @@ export default function AdminCategories() {
     try {
       await Teacher.updateChapter(editing, {
         name: editName.trim(),
-        description: editDesc.trim(),
       });
       await refreshChapters();
       setEditing(null);
@@ -165,19 +160,6 @@ export default function AdminCategories() {
               borderRadius: 0,
             }}
           />
-          <textarea
-            value={newDesc}
-            onChange={(e) => setNewDesc(e.target.value)}
-            placeholder="Short description"
-            rows={2}
-            className="px-3 py-2 text-sm outline-none resize-none"
-            style={{
-              border: "2px solid var(--color-cream-dark)",
-              fontFamily: "var(--font-body)",
-              color: "var(--color-ink)",
-              borderRadius: 0,
-            }}
-          />
           <div className="flex gap-2">
             <button
               onClick={handleCreate}
@@ -198,7 +180,6 @@ export default function AdminCategories() {
               onClick={() => {
                 setShowForm(false);
                 setNewName("");
-                setNewDesc("");
               }}
               className="px-3 py-2"
               style={{
@@ -278,18 +259,6 @@ export default function AdminCategories() {
                         borderRadius: 0,
                       }}
                     />
-                    <textarea
-                      value={editDesc}
-                      onChange={(e) => setEditDesc(e.target.value)}
-                      rows={2}
-                      className="px-2 py-1.5 text-sm outline-none resize-none"
-                      style={{
-                        border: "2px solid var(--color-cream-dark)",
-                        fontFamily: "var(--font-body)",
-                        color: "var(--color-ink)",
-                        borderRadius: 0,
-                      }}
-                    />
                   </div>
                 ) : (
                   <div
@@ -306,18 +275,6 @@ export default function AdminCategories() {
                     >
                       {c.name}
                     </p>
-                    {c.description && (
-                      <p
-                        className="text-xs"
-                        style={{
-                          color: "var(--color-ink-muted)",
-                          fontFamily: "var(--font-body)",
-                          marginTop: 2,
-                        }}
-                      >
-                        {c.description}
-                      </p>
-                    )}
                     <p
                       className="text-xs mt-1"
                       style={{
@@ -383,7 +340,7 @@ export default function AdminCategories() {
                         />
                       </button>
                       <button
-                        onClick={() => startEdit(c.id, c.name, c.description ?? "")}
+                        onClick={() => startEdit(c.id, c.name)}
                         className="p-1.5"
                         style={{
                           background: "none",

@@ -96,33 +96,25 @@ export default function AdminLayout() {
             }}
           />
 
-          <div className="px-5 py-5 flex items-center gap-3">
-            <div
-              className="flex items-center justify-center shrink-0"
-              style={{ width: 36, height: 36, background: "var(--color-ember)" }}
+          <div className="px-5 py-5 flex items-end gap-1.5">
+            <p
+              className="text-xl font-900 leading-none"
+              style={{
+                fontFamily: "var(--font-display)",
+                color: "var(--color-amber)",
+              }}
             >
-              <BookMarked size={18} color="#fff" />
-            </div>
-            <div>
-              <p
-                className="text-base font-900 leading-none"
-                style={{
-                  fontFamily: "var(--font-display)",
-                  color: "var(--color-amber)",
-                }}
-              >
-                Quiz<span style={{ fontSize: "1.2em", lineHeight: 1 }}>Z</span>
-              </p>
-              <p
-                className="text-xs mt-0.5"
-                style={{
-                  color: "rgba(255,255,255,0.3)",
-                  fontFamily: "var(--font-body)",
-                }}
-              >
-                Teacher
-              </p>
-            </div>
+              Quiz<span style={{ fontSize: "1.2em", lineHeight: 1 }}>Z</span>
+            </p>
+            <span
+              className="text-xs leading-none"
+              style={{
+                color: "rgba(255,255,255,0.3)",
+                fontFamily: "var(--font-body)",
+              }}
+            >
+              Teacher
+            </span>
           </div>
 
           <div
@@ -200,25 +192,26 @@ export default function AdminLayout() {
             minHeight: "calc(52px + env(safe-area-inset-top))",
           }}
         >
-          <div
-            className="flex items-center justify-center shrink-0"
-            style={{
-              width: 32,
-              height: 32,
-              background: "var(--color-ember)",
-            }}
-          >
-            <BookMarked size={16} color="#fff" />
+          <div className="flex items-end gap-1.5 flex-1 min-w-0">
+            <p
+              className="flex-1 text-xl font-900 leading-none truncate"
+              style={{
+                fontFamily: "var(--font-display)",
+                color: "var(--color-amber)",
+              }}
+            >
+              {currentLabel}
+            </p>
+            <span
+              className="text-xs leading-none shrink-0"
+              style={{
+                color: "rgba(255,255,255,0.3)",
+                fontFamily: "var(--font-body)",
+              }}
+            >
+              Teacher
+            </span>
           </div>
-          <p
-            className="flex-1 text-base font-900 leading-none truncate"
-            style={{
-              fontFamily: "var(--font-display)",
-              color: "var(--color-amber)",
-            }}
-          >
-            {currentLabel}
-          </p>
           <button
             onClick={() => {
               teacherLogout();

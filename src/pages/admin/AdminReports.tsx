@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 import { Teacher } from "../../api/client";
 import type { ClassReport, StudentReport, AttemptSummary } from "../../api/client";
 import { TrendingUp, TrendingDown, MessageSquare, Clock, ChevronRight, Target, Zap, CheckCircle2, Download } from "lucide-react";
@@ -11,13 +12,22 @@ type Range = "week" | "month" | "year";
 
 export default function AdminReports() {
   const { students } = useApp();
-  const [range, setRange] = useState<Range>("month");
-  const [selectedStudent, setSelectedStudent] = useState<string>("all");
+  // Deep links from the dashboard (e.g. /reports?student=…&range=month&attempt=…)
+  // pre-select the range, student, and optionally pre-open an attempt detail.
+  const [searchParams] = useSearchParams();
+  const [range, setRange] = useState<Range>(
+    () => (searchParams.get("range") as Range) || "month",
+  );
+  const [selectedStudent, setSelectedStudent] = useState<string>(
+    () => searchParams.get("student") || "all",
+  );
   const [classReport, setClassReport] = useState<ClassReport | null>(null);
   const [studentReports, setStudentReports] = useState<
     Record<string, StudentReport>
   >({});
-  const [openAttemptId, setOpenAttemptId] = useState<string | null>(null);
+  const [openAttemptId, setOpenAttemptId] = useState<string | null>(
+    () => searchParams.get("attempt") || null,
+  );
   const [openAttempt, setOpenAttempt] = useState<AttemptSummary | null>(null);
   const [openClassStudent, setOpenClassStudent] = useState<string | null>(null);
 

@@ -7,7 +7,7 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import { Students, Teacher, QuizTaking, ApiError, type QuestionServed, type AttemptSummary, type ActiveAttempt } from "../api/client";
+import { Students, Teacher, QuizTaking, ApiError, type QuestionServed, type AttemptSummary, type ActiveAttempt, type LuckyMode } from "../api/client";
 import type {
   Student,
   Quiz,
@@ -21,6 +21,9 @@ import type {
 // Student identity + in-progress quiz session persistence so a browser
 // refresh (S3C-1) doesn't boot the student back to the name screen.
 const STUDENT_KEY = "quizz.student";
+// Remember the last student name separately so the landing screen can prefill
+// it for a returning student who isn't logged in yet.
+const LAST_NAME_KEY = "quizz.lastStudentName";
 const RESUME_KEY = "quizz.resumeAttemptId";
 
 interface AppState {
@@ -34,8 +37,12 @@ interface AppState {
 
   // Student session
   currentStudent: Student | null;
+  lastStudentName: string;
   sessionQuizId: string | null;
   wheelResult: 1 | 2 | 3 | null;
+  // "Lucky Double" upgrade for the current attempt ("extra" = +1 question,
+  // "double" = ×2 score). Empty for a regular spin. Drives optimistic results.
+  lucky: LuckyMode;
   questionsServed: QuestionServed[];
   currentQuestionIndex: number;
   currentTries: number;
@@ -62,10 +69,11 @@ interface AppContextType extends AppState {
   // Student
   loginStudent: (name: string) => Promise<Student | null>;
   logoutStudent: () => void;
+  clearLastStudentName: () => void;
   selectQuiz: (quizId: string) => void;
   clearSession: () => void;
   setWheelResult: (result: 1 | 2 | 3) => void;
-  startQuiz: (served: QuestionServed[], attemptId: string) => void;
+  startQuiz: (served: QuestionServed[], attemptId: string, lucky?: LuckyMode) => void;
   submitAnswer: (
     questionId: string,
     optionIndex: number,
@@ -121,8 +129,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return null;
     }
   });
+  // Last known student name — used to prefill the landing form for a
+  // returning student (kept even after sign-out, so re-entry is one click).
+  const [lastStudentName, setLastStudentName] = useState<string>(
+    () => localStorage.getItem(LAST_NAME_KEY) ?? "",
+  );
   const [sessionQuizId, setSessionQuizId] = useState<string | null>(null);
   const [wheelResult, setWheelResultState] = useState<1 | 2 | 3 | null>(null);
+  const [lucky, setLuckyState] = useState<LuckyMode>("");
   const [questionsServed, setQuestionsServed] = useState<QuestionServed[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [currentTries, setCurrentTries] = useState(0);
@@ -262,6 +276,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return;
         }
         setCurrentStudent(r.student);
+        rememberName(r.student.name);
         setQuizzes(r.quizzes);
         setChapters(r.chapters ?? []);
         setLessons(r.lessons ?? []);
@@ -280,6 +295,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [currentStudent?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const rememberName = useCallback((name: string) => {
+    localStorage.setItem(LAST_NAME_KEY, name);
+    setLastStudentName(name);
+  }, []);
+
+  const clearLastStudentName = useCallback(() => {
+    localStorage.removeItem(LAST_NAME_KEY);
+    setLastStudentName("");
+  }, []);
+
   const loginStudent = useCallback(async (name: string): Promise<Student | null> => {
     setLoading(true);
     setError(null);
@@ -288,6 +313,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (r.student.id === "unknown") return null;
       setCurrentStudent(r.student);
       localStorage.setItem(STUDENT_KEY, JSON.stringify(r.student));
+      rememberName(r.student.name);
       setQuizzes(r.quizzes);
       // The student view groups quizzes by chapter → lesson, so we also need
       // the catalogue. Server returns the full chapter + lesson list as part
@@ -316,6 +342,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const selectQuiz = useCallback((quizId: string) => {
     setSessionQuizId(quizId);
     setWheelResultState(null);
+    setLuckyState("");
     setQuestionsServed([]);
     setCurrentQuestionIndex(0);
     setCurrentTries(0);
@@ -327,6 +354,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const clearSession = useCallback(() => {
     setSessionQuizId(null);
     setWheelResultState(null);
+    setLuckyState("");
     setQuestionsServed([]);
     setCurrentQuestionIndex(0);
     setCurrentTries(0);
@@ -361,12 +389,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setWheelResultState(result);
   }, []);
 
-  const startQuiz = useCallback((served: QuestionServed[], aid: string) => {
+  const startQuiz = useCallback((served: QuestionServed[], aid: string, luckyMode: LuckyMode = "") => {
     setQuestionsServed(served);
     setCurrentQuestionIndex(0);
     setCurrentTries(0);
     setSessionAnswers([]);
     setAttemptId(aid);
+    setLuckyState(luckyMode);
     // Arm the resume prompt for this attempt (cleared on complete/cancel).
     localStorage.setItem(RESUME_KEY, aid);
   }, []);
@@ -461,6 +490,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setCurrentQuestionIndex(0);
       setCurrentTries(0);
       setWheelResultState(null);
+      setLuckyState("");
       // Refresh the student's quiz list so completed quizzes show their
       // updated bestScore / "Done" state immediately (server now has the
       // completed attempt).
@@ -482,6 +512,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPendingResume(null);
     setSessionQuizId(attempt.quizId);
     setWheelResultState(attempt.wheelResult);
+    setLuckyState(attempt.lucky ?? "");
     setQuestionsServed(attempt.questionsServed);
     setCurrentQuestionIndex(attempt.nextQuestionIndex);
     setCurrentTries(attempt.currentTries);
@@ -581,8 +612,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     students,
     messages,
     currentStudent,
+    lastStudentName,
     sessionQuizId,
     wheelResult,
+    lucky,
     questionsServed,
     currentQuestionIndex,
     currentTries,
@@ -597,6 +630,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refreshCatalog,
     loginStudent,
     logoutStudent,
+    clearLastStudentName,
     selectQuiz,
     clearSession,
     setWheelResult,

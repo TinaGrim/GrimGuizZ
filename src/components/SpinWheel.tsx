@@ -1,4 +1,6 @@
 import { useState, useRef, useMemo } from "react";
+import { motion } from "motion/react";
+import { Sounds } from "../data/sounds";
 
 interface SpinWheelProps {
   // Spin is purely cosmetic — server is authoritative. The parent will
@@ -11,11 +13,53 @@ interface SpinWheelProps {
   // wheelResult). This guarantees the arrow points at the same segment the
   // student will actually be served — no visual / count mismatch.
   targetValue: 1 | 2 | 3;
+  // "Lucky Double" golden spin: renders a golden shimmer so the player
+  // knows the spin is special before the reveal lands.
+  lucky?: string;
   disabled?: boolean;
 }
 
 const SEGMENT_COLORS = ["#D94F1E", "#F0A500", "#0D6E6E"];
 const SEGMENT_TEXT_COLORS = ["#fff", "#1C0F00", "#fff"];
+
+// The spin's CSS transition uses cubic-bezier(0.17, 0.67, 0.12, 0.99).
+// We mirror it here so the tick sound follows the *actual* angular velocity
+// of the wheel: rapid-fire at the launch, slowing to a crawl as it coasts,
+// instead of a constant-rate metronome from the old fixed setInterval.
+const SPIN_MS = 4200;
+const EASING = [0.17, 0.67, 0.12, 0.99] as const;
+const EASE_LUT_STEPS = 120;
+const TICK_EVERY_DEG = 30; // one tick per N° of swept rotation
+
+function sampleCubicBezier(x1: number, y1: number, x2: number, y2: number, t: number) {
+  const cx = 3 * x1;
+  const bx = 3 * (x2 - x1) - cx;
+  const ax = 1 - cx - bx;
+  const cy = 3 * y1;
+  const by = 3 * (y2 - y1) - cy;
+  const ay = 1 - cy - by;
+  return {
+    x: ((ax * t + bx) * t + cx) * t,
+    y: ((ay * t + by) * t + cy) * t,
+    dx: (3 * ax * t + 2 * bx) * t + cx,
+  };
+}
+
+// Precomputed eased progress samples so each spin skips the bezier solve.
+const EASE_LUT = Array.from({ length: EASE_LUT_STEPS + 1 }, (_, i) => {
+  const target = i / EASE_LUT_STEPS;
+  let t = target;
+  for (let iter = 0; iter < 8; iter++) {
+    const s = sampleCubicBezier(...EASING, t);
+    const diff = s.x - target;
+    if (Math.abs(diff) < 1e-6 || Math.abs(s.dx) < 1e-6) break;
+    t -= diff / s.dx;
+  }
+  return sampleCubicBezier(...EASING, t).y;
+});
+
+const easeProgress = (elapsed: number) =>
+  EASE_LUT[Math.min(EASE_LUT_STEPS, Math.round(elapsed * EASE_LUT_STEPS))];
 
 function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
   const rad = ((angleDeg - 90) * Math.PI) / 180;
@@ -29,7 +73,7 @@ function describeArc(cx: number, cy: number, r: number, startAngle: number, endA
   return [`M ${cx} ${cy}`, `L ${start.x} ${start.y}`, `A ${r} ${r} 0 ${largeArcFlag} 1 ${end.x} ${end.y}`, "Z"].join(" ");
 }
 
-export default function SpinWheel({ onLanded, maxValue, targetValue, disabled }: SpinWheelProps) {
+export default function SpinWheel({ onLanded, maxValue, targetValue, lucky = "", disabled }: SpinWheelProps) {
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
   const [landed, setLanded] = useState(false);
@@ -55,6 +99,7 @@ export default function SpinWheel({ onLanded, maxValue, targetValue, disabled }:
     hasSpun.current = true;
     setSpinning(true);
     setLanded(false);
+    Sounds.click();
 
     // The server has already committed to a wheelResult. We MUST land on
     // that exact segment so the arrow visually matches the count the
@@ -71,13 +116,33 @@ export default function SpinWheel({ onLanded, maxValue, targetValue, disabled }:
 
     setRotation(totalRotation);
 
+    // Tick cadence mirrors rotational speed: sample the same easing the CSS
+    // transition runs, and play a tick every `TICK_EVERY_DEG` of swept angle.
+    // Fast start → dense ticks; decelerating end → ticks space out.
+    const start = performance.now();
+    let lastTickSweep = 0;
+    let rafId = 0;
+    const driveTicks = (now: number) => {
+      const elapsed = Math.min((now - start) / SPIN_MS, 1);
+      const sweep = easeProgress(elapsed) * totalRotation;
+      const crossed = Math.floor(sweep / TICK_EVERY_DEG);
+      if (crossed > lastTickSweep) {
+        lastTickSweep = crossed;
+        Sounds.tick();
+      }
+      if (elapsed < 1) rafId = requestAnimationFrame(driveTicks);
+    };
+    rafId = requestAnimationFrame(driveTicks);
+
     setTimeout(() => {
+      cancelAnimationFrame(rafId);
       setSpinning(false);
       setLanded(true);
+      Sounds.land();
       // Hand control back to the parent so it can reveal the real count
       // and start the attempt.
       setTimeout(() => onLanded(), 400);
-    }, 4200);
+    }, SPIN_MS);
   };
 
   const CX = 150;
@@ -88,7 +153,13 @@ export default function SpinWheel({ onLanded, maxValue, targetValue, disabled }:
   return (
     <div className="flex flex-col items-center gap-6">
       {/* Wheel container */}
-      <div className="relative" style={{ width: 320, height: 320 }}>
+      <motion.div
+        className="relative"
+        style={{ width: 320, height: 320 }}
+        initial={false}
+        animate={landed ? { scale: [1, 1.05, 0.985, 1] } : { scale: 1 }}
+        transition={{ duration: 0.45, times: [0, 0.3, 0.6, 1] }}
+      >
         {/* Pointer — fixed triangle at top */}
         <div
           className="absolute left-1/2 -top-3 z-10"
@@ -237,6 +308,35 @@ export default function SpinWheel({ onLanded, maxValue, targetValue, disabled }:
           })}
         </svg>
 
+        {/* Lucky Double — golden shimmer so the special spin reads instantly */}
+        {lucky && !landed && (
+          <div
+            className="absolute inset-0 rounded-full pointer-events-none"
+            style={{
+              border: "4px solid transparent",
+              background:
+                "conic-gradient(from 0deg, rgba(240,165,0,0.9), rgba(255,217,168,0.15), rgba(240,165,0,0.9), rgba(255,217,168,0.15), rgba(240,165,0,0.9)) border-box",
+              WebkitMask:
+                "linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0)",
+              WebkitMaskComposite: "xor",
+              maskComposite: "exclude",
+              animation: "landingRing 1.2s ease-in-out infinite",
+              boxShadow: "0 0 30px rgba(240,165,0,0.65)",
+            }}
+          >
+            <span
+              className="absolute -top-4 left-1/2"
+              style={{
+                transform: "translateX(-50%)",
+                fontSize: 28,
+                filter: "drop-shadow(0 0 8px rgba(240,165,0,0.9))",
+              }}
+            >
+              🎁
+            </span>
+          </div>
+        )}
+
         {/* Landing indicator — persistent so the winning segment stays obvious */}
         {landed && (
           <div
@@ -248,11 +348,11 @@ export default function SpinWheel({ onLanded, maxValue, targetValue, disabled }:
             }}
           />
         )}
-      </div>
+      </motion.div>
 
       {/* Spin button */}
       {!landed && (
-        <button
+        <motion.button
           onClick={handleSpin}
           disabled={spinning || disabled}
           className="relative overflow-hidden font-display font-700 text-xl px-10 py-4 rounded-none"
@@ -261,27 +361,16 @@ export default function SpinWheel({ onLanded, maxValue, targetValue, disabled }:
             color: "#fff",
             border: "3px solid var(--color-ink)",
             cursor: spinning ? "not-allowed" : "pointer",
-            transform: spinning ? "none" : "translateY(0)",
             boxShadow: spinning ? "none" : "4px 4px 0 var(--color-ink)",
             transition: "all 0.15s ease",
             letterSpacing: "0.04em",
             fontFamily: "var(--font-display)",
           }}
-          onMouseEnter={(e) => {
-            if (!spinning) {
-              (e.currentTarget as HTMLButtonElement).style.transform = "translate(-2px, -2px)";
-              (e.currentTarget as HTMLButtonElement).style.boxShadow = "6px 6px 0 var(--color-ink)";
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!spinning) {
-              (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
-              (e.currentTarget as HTMLButtonElement).style.boxShadow = "4px 4px 0 var(--color-ink)";
-            }
-          }}
+          whileHover={spinning ? {} : { y: -2, x: -2, boxShadow: "6px 6px 0 var(--color-ink)" }}
+          whileTap={spinning ? {} : { y: 2, x: 2, boxShadow: "2px 2px 0 var(--color-ink)" }}
         >
           {spinning ? "Spinning…" : "Spin the Wheel"}
-        </button>
+        </motion.button>
       )}
     </div>
   );

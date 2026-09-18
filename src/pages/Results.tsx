@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams, useLocation } from "react-router";
+import { motion, animate } from "motion/react";
 import { useApp } from "../store/AppContext";
 import ProgressRing from "../components/ProgressRing";
 import { getRandomQuote } from "../data/quotes";
@@ -7,11 +8,14 @@ import { Students } from "../api/client";
 import { CheckCircle, XCircle, ArrowRight } from "lucide-react";
 import type { QuizSessionAnswer } from "../data/types";
 import MathText from "../components/MathText";
+import Confetti from "../components/Confetti";
+import { Sounds } from "../data/sounds";
 
 interface ResultsState {
   score: number;
   total: number;
   answers: QuizSessionAnswer[];
+  lucky?: "" | "extra" | "double";
 }
 
 export default function Results() {
@@ -25,6 +29,9 @@ export default function Results() {
   const [showBreakdown, setShowBreakdown] = useState(false);
   const quotesRef = useRef<Record<string, string>>({});
   const serverQuotesRef = useRef<string[]>([]);
+  // Ensure the fanfare plays exactly once (React StrictMode remounts effects
+  // in dev; the timer-count-up effect below can't distinguish the runs).
+  const fanfarePlayedRef = useRef(false);
 
   useEffect(() => {
     let mounted = true;
@@ -62,6 +69,10 @@ export default function Results() {
       navigate("/quizzes");
       return;
     }
+    if (!fanfarePlayedRef.current) {
+      fanfarePlayedRef.current = true;
+      Sounds.fanfare(state.total === 0 ? 0 : state.score / state.total);
+    }
     if (state.answers) {
       state.answers.forEach((a) => {
         if (!a.correct && !quotesRef.current[a.questionId]) {
@@ -69,23 +80,40 @@ export default function Results() {
         }
       });
     }
-    let n = 0;
     const target = state.score;
     if (target === 0) {
       setDisplayScore(0);
       setTimeout(() => setShowBreakdown(true), 800);
       return;
     }
-    const interval = setInterval(() => {
-      n++;
-      setDisplayScore(n);
-      if (n >= target) {
-        clearInterval(interval);
-        setTimeout(() => setShowBreakdown(true), 400);
-      }
-    }, 400);
-    return () => clearInterval(interval);
+    // motion's animate() tween drives the score count-up. The previous
+    // setInterval approach stepped once every 400ms (2.5 ticks/sec) which
+    // felt choppy on larger totals; a 60fps tween with a target-scaled
+    // duration finishes as briskly for 3 points as for 20, and `stop()` on
+    // cleanup replaces clearInterval.
+    const controls = animate(0, target, {
+      duration: Math.min(1.2, 0.4 + target * 0.05),
+      ease: "easeOut",
+      onUpdate: (v) => setDisplayScore(Math.round(v)),
+      onComplete: () => setTimeout(() => setShowBreakdown(true), 400),
+    });
+    return () => controls.stop();
   }, [currentStudent, state, navigate]);
+
+  // Once the score count-up finishes and the breakdown cards have cascaded in
+  // (each is staggered 0.12s + 0.5s slide-up), glide down to the bottom of the
+  // page so the "Back to my quizzes" button comes into view on its own.
+  useEffect(() => {
+    if (!showBreakdown || !state) return;
+    const delay = 700 + Math.max(0, state.answers.length - 1) * 120;
+    const t = window.setTimeout(() => {
+      window.scrollTo({
+        top: document.documentElement.scrollHeight,
+        behavior: "smooth",
+      });
+    }, delay);
+    return () => window.clearTimeout(t);
+  }, [showBreakdown, state]);
 
   if (!state || !currentStudent) return null;
 
@@ -94,21 +122,22 @@ export default function Results() {
   const quiz = quizzes.find((q) => q.id === quizId);
 
   const getHeading = () => {
-    if (pct === 1) return "Clean sweep.";
-    if (pct >= 0.67) return "Solid work.";
+    if (pct === 1) return "Clean sweep 🧹";
+    if (pct >= 0.67) return "Solid work 💪";
     if (pct >= 0.34) return "You got some.";
-    return "Rough one.";
+    return "You've been sponsored by wrong answers™";
   };
 
   const getSubheading = () => {
     if (pct === 1) return "Every question, correct. That's not luck — that's the material clicking.";
     if (pct >= 0.67) return "More right than wrong. The misses are worth reviewing.";
     if (pct >= 0.34) return "Mixed bag. The breakdown below is the useful part.";
-    return "Didn't land today — but the review section is where the learning happens.";
+    return "Not today — but you've officially made the Wall of Shame list. Review below and come back swinging.";
   };
 
   // Resolve the full Question object (prompt + 5 options) for breakdown display.
   const { questions, attemptSummary } = useApp();
+  const lucky = state.lucky ?? attemptSummary?.lucky ?? "";
   const breakdown =
     attemptSummary?.breakdown ??
     answers.map((a) => {
@@ -128,6 +157,20 @@ export default function Results() {
 
   return (
     <div className="min-h-screen" style={{ background: "var(--color-cream)" }}>
+      {/* Celebration routine tiers with the score: perfect = full burst +
+      ring flash, solid = a healthy shower, mixed = a light dusting, and a
+      single commemorative piece for zero points. The fanfare sound plays
+      alongside in the mount effect. */}
+      {pct === 1 ? (
+        <Confetti pieces={110} burst />
+      ) : pct >= 0.67 ? (
+        <Confetti pieces={60} />
+      ) : pct >= 0.34 ? (
+        <Confetti pieces={24} />
+      ) : (
+        /* Zero points: one lonely piece of confetti. Commemorative. */
+        <Confetti pieces={1} />
+      )}
       <div
         className="h-2"
         style={{
@@ -137,6 +180,22 @@ export default function Results() {
       />
 
       <div className="max-w-2xl mx-auto px-6 py-12">
+        {lucky && (
+          <div
+            className="flex items-center justify-center gap-2 px-4 py-2.5 mb-6 animate-pop-in"
+            style={{
+              background: "#2A1800",
+              border: "2px solid var(--color-amber)",
+              boxShadow: "4px 4px 0 var(--color-amber)",
+              color: "var(--color-amber)",
+              fontFamily: "var(--font-display)",
+              fontWeight: 900,
+              letterSpacing: "0.06em",
+            }}
+          >
+            🎁 LUCKY DOUBLE
+          </div>
+        )}
         <div
           className="flex flex-col sm:flex-row items-center gap-8 p-8 mb-8"
           style={{
@@ -198,7 +257,12 @@ export default function Results() {
         </div>
 
         {showBreakdown && (
-          <div className="flex flex-col gap-4 animate-slide-up">
+          <motion.div
+            className="flex flex-col gap-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3 }}
+          >
             <h2
               className="text-lg font-700"
               style={{
@@ -213,15 +277,15 @@ export default function Results() {
               const quote = !b.correct ? (quotesRef.current[b.questionId] ?? pickQuote()) : null;
               const correctOpt = b.options[b.correctOptionIndex];
               return (
-                <div
+                <motion.div
                   key={b.questionId}
-                  className="animate-slide-up"
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 + i * 0.08, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
                   style={{
                     background: b.correct ? "#E6F5F5" : "white",
                     border: `2px solid ${b.correct ? "var(--color-teal-dark)" : "var(--color-cream-dark)"}`,
                     borderLeft: `5px solid ${b.correct ? "var(--color-teal-dark)" : "var(--color-ember)"}`,
-                    animationDelay: `${i * 0.12}s`,
-                    animationFillMode: "both",
                   }}
                 >
                   <div className="flex items-start gap-4 p-5">
@@ -379,16 +443,18 @@ export default function Results() {
                       )}
                     </div>
                   </div>
-                </div>
+                </motion.div>
               );
             })}
-          </div>
+          </motion.div>
         )}
 
         {showBreakdown && (
-          <div
-            className="flex gap-3 mt-8 animate-slide-up"
-            style={{ animationDelay: "0.5s", animationFillMode: "both" }}
+          <motion.div
+            className="flex gap-3 mt-8"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
           >
             <button
               onClick={() => navigate("/quizzes")}
@@ -417,7 +483,7 @@ export default function Results() {
               Back to my quizzes
               <ArrowRight size={18} />
             </button>
-          </div>
+          </motion.div>
         )}
       </div>
     </div>

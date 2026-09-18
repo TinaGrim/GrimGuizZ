@@ -1,14 +1,16 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { useApp } from "../store/AppContext";
-import { ArrowRight, BookOpen } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 export default function StudentLanding() {
-  const [name, setName] = useState("");
+  const [name, setName] = useState(() => localStorage.getItem("quizz.lastStudentName") ?? "");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { loginStudent } = useApp();
+  const { loginStudent, lastStudentName, clearLastStudentName } = useApp();
   const navigate = useNavigate();
+
+  const savedName = lastStudentName.trim();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -27,6 +29,12 @@ export default function StudentLanding() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleNotYou = () => {
+    clearLastStudentName();
+    setName("");
+    setError("");
   };
 
   return (
@@ -76,32 +84,6 @@ export default function StudentLanding() {
             }}
           />
 
-          <div className="relative z-10">
-            <div className="flex items-center gap-3 mb-2">
-              <div
-                className="flex items-center justify-center"
-                style={{
-                  width: 44,
-                  height: 44,
-                  background: "var(--color-ember)",
-                  border: "2px solid rgba(255,255,255,0.2)",
-                }}
-              >
-                <BookOpen size={22} color="#fff" />
-              </div>
-              <span
-                className="text-lg font-600 tracking-wider uppercase"
-                style={{
-                  color: "rgba(255,255,255,0.5)",
-                  fontFamily: "var(--font-body)",
-                  letterSpacing: "0.15em",
-                }}
-              >
-                Quiz<span style={{ fontSize: "1.2em", lineHeight: 1 }}>Z</span> Platform
-              </span>
-            </div>
-          </div>
-
           <div className="relative z-10 my-auto">
             <h1
               className="font-900 leading-none mb-6"
@@ -121,37 +103,6 @@ export default function StudentLanding() {
               Spin the wheel. Get your questions. Prove what you know — or get
               acquainted with the troll video.
             </p>
-
-            <div className="flex flex-wrap gap-2 mt-8">
-              {[
-                "Spin to pick questions",
-                "3 attempts per question",
-                "Math & Physics",
-                "Instant feedback",
-              ].map((f) => (
-                <span
-                  key={f}
-                  className="text-xs px-3 py-1.5 font-500"
-                  style={{
-                    border: "1px solid rgba(255,255,255,0.15)",
-                    color: "rgba(255,255,255,0.5)",
-                    fontFamily: "var(--font-body)",
-                  }}
-                >
-                  {f}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className="relative z-10">
-            <a
-              href="/admin"
-              className="text-xs font-500 underline underline-offset-2 opacity-30 hover:opacity-60 transition-opacity"
-              style={{ color: "#fff", fontFamily: "var(--font-body)" }}
-            >
-              Teacher login →
-            </a>
           </div>
         </div>
 
@@ -164,12 +115,31 @@ export default function StudentLanding() {
               Enter your name
             </h2>
             <p
-              className="mb-8 text-base"
+              className="mb-6 text-base"
               style={{ color: "var(--color-ink-muted)", fontFamily: "var(--font-body)" }}
             >
-              Your teacher has set up your quizzes. Just type the name they have
-              on file — case doesn't matter.
+              {savedName
+                ? `Welcome back, ${savedName}! Just hit "See my quizzes" to jump in.`
+                : "Your teacher has set up your quizzes. Just type the name they have on file — case doesn't matter."}
             </p>
+
+            {savedName && (
+              <button
+                type="button"
+                onClick={handleNotYou}
+                className="text-xs mb-4 underline underline-offset-2"
+                style={{
+                  color: "var(--color-ink-muted)",
+                  fontFamily: "var(--font-body)",
+                  cursor: "pointer",
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                }}
+              >
+                Not {savedName}?
+              </button>
+            )}
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div>
@@ -252,6 +222,71 @@ export default function StudentLanding() {
               </button>
             </form>
           </div>
+        </div>
+      </div>
+
+      <div
+        className="relative shrink-0"
+        style={{ background: "var(--color-ink)" }}
+      >
+        <div
+          className="absolute top-6 left-1/4 opacity-8"
+          style={{
+            width: 48,
+            height: 48,
+            background: "var(--color-ember)",
+            transform: "rotate(15deg)",
+          }}
+        />
+        <div
+          className="absolute top-5 right-1/4 opacity-10"
+          style={{
+            width: 0,
+            height: 0,
+            borderLeft: "26px solid transparent",
+            borderRight: "26px solid transparent",
+            borderBottom: "44px solid var(--color-teal)",
+          }}
+        />
+        <div
+          className="absolute bottom-6 right-12 opacity-10"
+          style={{
+            width: 88,
+            height: 88,
+            border: "3px solid var(--color-amber)",
+            borderRadius: "50%",
+          }}
+        />
+
+        <div className="relative z-10 flex flex-wrap items-center justify-between gap-4 px-10 py-6 lg:px-16">
+          <div className="flex flex-wrap gap-2">
+            {[
+              "Spin to pick questions",
+              "3 attempts per question",
+              "Math & Physics",
+              "Instant feedback",
+            ].map((f) => (
+              <span
+                key={f}
+                className="text-xs px-3 py-1.5 font-500"
+                style={{
+                  border: "1px solid rgba(255,255,255,0.15)",
+                  color: "rgba(255,255,255,0.5)",
+                  fontFamily: "var(--font-body)",
+                }}
+              >
+                {f}
+              </span>
+            ))}
+          </div>
+
+          <a
+            href="/admin"
+            className="text-xs font-500 underline underline-offset-2 opacity-30 hover:opacity-60 transition-opacity"
+            style={{ color: "#fff", fontFamily: "var(--font-body)" }}
+          >
+            Teacher login →
+          </a>
         </div>
       </div>
     </div>

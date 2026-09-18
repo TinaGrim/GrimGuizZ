@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
+import { motion, AnimatePresence } from "motion/react";
 import { useApp } from "../store/AppContext";
 import { QuizTaking } from "../api/client";
-import type { SpinResponse } from "../api/client";
+import type { SpinResponse, LuckyMode } from "../api/client";
 import SpinWheel from "../components/SpinWheel";
+import FadeUp from "../components/FadeUp";
 
 function detectDeviceType(): "mobile" | "desktop" {
   if (typeof window === "undefined") return "desktop";
@@ -24,6 +26,10 @@ export default function WheelSpin() {
   const [error, setError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [spin, setSpin] = useState<SpinResponse | null>(null);
+  // +1 bonus-question count-up: `extraCount` is the new (persistent) count
+  // once bumped in, `bump` only drives the transient "+1" tag + pop.
+  const [extraCount, setExtraCount] = useState<number | null>(null);
+  const [bump, setBump] = useState(false);
 
   const quiz = quizzes.find((q) => q.id === quizId);
   // Primitive IDs instead of object references for the effect's deps — the
@@ -70,7 +76,7 @@ export default function WheelSpin() {
         if (ignore) return;
         setSpin(result);
         if (result.maxWheelValue === 1) {
-          await startAttempt(result.wheelResult);
+          await startAttempt(result.wheelResult, result.lucky ?? "");
         }
       } catch (e) {
         if (!ignore) setError((e as Error).message);
@@ -95,20 +101,46 @@ export default function WheelSpin() {
   // StrictMode double-invocation and any unrelated state updates that
   // re-render the component — the previous `setTimeout(navigate, 1200)`
   // approach was fragile if the timer was lost during a hot reload.
+  //
+  // A LUCKY DOUBLE spin holds the reveal for ~2s so the popup is actually
+  // readable — otherwise the banner mounted and unmounted within a single
+  // paint and the bonus went unnoticed.
   useEffect(() => {
     if (!revealed || !spin) return;
-    navigate(`/quiz/${quizId}/question`, { replace: true });
+    if (!spin.lucky) {
+      navigate(`/quiz/${quizId}/question`, { replace: true });
+      return;
+    }
+    const t = setTimeout(
+      () => navigate(`/quiz/${quizId}/question`, { replace: true }),
+      5000,
+    );
+    return () => clearTimeout(t);
   }, [revealed, spin, quizId, navigate]);
 
-  const startAttempt = async (wheelResult: 1 | 2 | 3) => {
+  // LUCKY DOUBLE "+1": once the reveal is on screen, tick the landed count
+  // up by one with a "+1" tag dropping in from the top — 2 becomes 3 in
+  // front of the player. Only applies to the `extra` (bonus question) mode.
+  useEffect(() => {
+    if (!revealed || spin?.lucky !== "extra") return;
+    const t = setTimeout(() => {
+      setExtraCount((spin?.wheelResult ?? 1) + 1);
+      setBump(true);
+      setTimeout(() => setBump(false), 900);
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [revealed, spin]);
+
+  const startAttempt = async (wheelResult: 1 | 2 | 3, lucky: LuckyMode = "") => {
     if (!quiz) return;
     setWheelResult(wheelResult);
     const attempt = await QuizTaking.createAttempt({
       quizId: quiz.id,
       wheelResult,
+      lucky: lucky || undefined,
       deviceType: detectDeviceType(),
     });
-    startQuiz(attempt.questionsServed, attempt.id);
+    startQuiz(attempt.questionsServed, attempt.id, attempt.lucky ?? lucky ?? "");
     // Flip revealed last so the navigation effect above is the one that
     // drives the transition. Reveal is shown for as long as it takes
     // React to commit the state and unmount this component — typically
@@ -125,7 +157,7 @@ export default function WheelSpin() {
     setBusy(true);
     setError(null);
     try {
-      await startAttempt(spin.wheelResult);
+      await startAttempt(spin.wheelResult, spin.lucky ?? "");
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -168,7 +200,7 @@ export default function WheelSpin() {
   const serverResult = spin.wheelResult;
 
   return (
-    <div
+    <FadeUp
       className="min-h-screen flex flex-col items-center justify-center px-6 py-12 relative overflow-hidden"
       style={{ background: "var(--color-ink)" }}
     >
@@ -245,38 +277,83 @@ export default function WheelSpin() {
             disabled={busy || revealed}
             maxValue={maxValue}
             targetValue={serverResult}
+            lucky={spin.lucky ?? ""}
           />
         )}
 
         {revealed && (
-          <div className="text-center animate-pop-in">
-            <p
+          <motion.div
+            className="text-center"
+            initial={{ opacity: 0, scale: 0.6 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: "spring", stiffness: 260, damping: 18 }}
+          >
+            {spin.lucky && (
+              <motion.p
+                className="font-display font-900 text-4xl mb-2"
+                initial={{ rotate: -5, opacity: 0 }}
+                animate={{ rotate: 0, opacity: 1 }}
+                transition={{ type: "spring", stiffness: 220, damping: 15 }}
+                style={{
+                  color: "var(--color-amber)",
+                  textShadow: "0 0 24px rgba(240,165,0,0.7)",
+                  fontFamily: "var(--font-display)",
+                }}
+              >
+                🎁 LUCKY DOUBLE!
+              </motion.p>
+            )}
+            <motion.p
+              key={extraCount ?? serverResult}
               className="font-display font-900 text-5xl"
+              initial={{ opacity: 0, scale: 0.4, y: 24 }}
+              animate={
+                bump
+                  ? { opacity: 1, scale: [1, 1.3, 1], y: 0 }
+                  : { opacity: 1, scale: 1, y: 0 }
+              }
+              transition={
+                bump
+                  ? { duration: 0.55, times: [0, 0.45, 1], ease: "easeOut" }
+                  : { type: "spring", stiffness: 300, damping: 16 }
+              }
               style={{ color: "var(--color-ember)", fontFamily: "var(--font-display)" }}
             >
-              {serverResult} {serverResult === 1 ? "Question" : "Questions"}!
-            </p>
+              <span className="relative inline-block">
+                {extraCount ?? serverResult}{" "}
+                {(extraCount ?? serverResult) === 1 ? "Question" : "Questions"}
+                !
+                <AnimatePresence>
+                  {bump && (
+                    <motion.span
+                      className="plus-one-tag"
+                      aria-hidden
+                      initial={{ y: -40, opacity: 0, scale: 0.6 }}
+                      animate={{ y: 0, opacity: 1, scale: 1 }}
+                      exit={{ y: 10, opacity: 0 }}
+                      transition={{ duration: 0.4, ease: "easeOut" }}
+                    >
+                      +1
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </span>
+            </motion.p>
+            {spin.lucky === "double" && (
+              <p
+                className="text-base mt-2 font-600"
+                style={{ color: "var(--color-amber)", fontFamily: "var(--font-body)" }}
+              >
+                Score counts double this round.
+              </p>
+            )}
             <p
               className="text-base mt-1"
               style={{ color: "rgba(255,255,255,0.55)", fontFamily: "var(--font-body)" }}
             >
               Get ready…
             </p>
-            <button
-              type="button"
-              onClick={() => navigate(`/quiz/${quizId}/question`)}
-              className="mt-4 text-xs px-3 py-1.5"
-              style={{
-                background: "rgba(255,255,255,0.1)",
-                color: "rgba(255,255,255,0.7)",
-                border: "1px solid rgba(255,255,255,0.25)",
-                cursor: "pointer",
-                fontFamily: "var(--font-body)",
-              }}
-            >
-              Skip the wait
-            </button>
-          </div>
+          </motion.div>
         )}
 
         {error && (
@@ -287,19 +364,7 @@ export default function WheelSpin() {
             {error}
           </p>
         )}
-
-        {!revealed && maxValue > 1 && (
-          <p
-            className="text-sm text-center max-w-xs"
-            style={{
-              color: "rgba(255,255,255,0.35)",
-              fontFamily: "var(--font-body)",
-            }}
-          >
-            The server picks — {maxValue === 2 ? "1 or 2 questions" : "1, 2, or 3 questions"}. One spin only.
-          </p>
-        )}
       </div>
-    </div>
+    </FadeUp>
   );
 }
